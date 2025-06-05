@@ -156,6 +156,24 @@ pub async fn initproc() {
         )
         .await;
         let home_dir = PathBuf::from("/musl");
+        command(
+            "/musl/busybox echo #### OS COMP TEST GROUP START iozone-musl ####",
+            home_dir.clone(),
+        )
+        .await;
+        command(
+            "/musl/busybox echo iozone automatic measurements",
+            home_dir.clone(),
+        )
+        .await;
+        command("/musl/iozone -a -r 1k -s 4m", home_dir.clone()).await;
+        command(
+            "/musl/busybox echo #### OS COMP TEST GROUP END iozone-musl ####",
+            home_dir.clone(),
+        )
+        .await;
+
+        //command("/musl/busybox sh ", home_dir.clone()).await;
         command("/musl/busybox sh busybox_testcode.sh", home_dir.clone()).await;
 
         command("/musl/busybox sh lua_testcode.sh", home_dir.clone()).await;
@@ -385,6 +403,29 @@ pub async fn initproc() {
         )
         .await;
         let home_dir = PathBuf::from("/musl");
+        command(
+            "/musl/busybox echo #### OS COMP TEST GROUP END basic-musl ####",
+            home_dir.clone(),
+        )
+        .await;
+        let home_dir = PathBuf::from("/musl");
+        command(
+            "/musl/busybox echo #### OS COMP TEST GROUP START iozone-musl ####",
+            home_dir.clone(),
+        )
+        .await;
+        command(
+            "/musl/busybox echo iozone automatic measurements",
+            home_dir.clone(),
+        )
+        .await;
+        command("/musl/iozone -a -r 1k -s 4m", home_dir.clone()).await;
+        command(
+            "/musl/busybox echo #### OS COMP TEST GROUP END iozone-musl ####",
+            home_dir.clone(),
+        )
+        .await;
+
         command("/musl/busybox sh busybox_testcode.sh", home_dir.clone()).await;
         command("/musl/busybox sh lua_testcode.sh", home_dir.clone()).await;
         //command("/musl/busybox sh libctest_testcode.sh", home_dir.clone()).await;
