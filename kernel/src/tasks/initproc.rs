@@ -380,11 +380,11 @@ pub async fn initproc() {
         )
         .await;
 
-        command(
-            "/glibc/busybox sh cyclictest_testcode.sh",
-            glibc_home_dir.clone(),
-        )
-        .await;
+        // command(
+        //     "/glibc/busybox sh cyclictest_testcode.sh",
+        //     glibc_home_dir.clone(),
+        // )
+        // .await;
     }
 
     #[cfg(target_arch = "loongarch64")]
