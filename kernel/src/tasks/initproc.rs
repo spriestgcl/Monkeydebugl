@@ -402,7 +402,129 @@ pub async fn initproc() {
             home_dir.clone(),
         )
         .await;
-        command("/musl/busybox sh /musl/basic/run-all.sh", home_dir.clone()).await;
+        //command("/musl/busybox sh /musl/basic/run-all.sh", home_dir.clone()).await;
+        command("/musl/busybox echo Testing brk:", home_dir.clone()).await;
+        command("/musl/basic/brk", home_dir.clone()).await;
+
+        // chdir
+        command("/musl/busybox echo Testing chdir:", home_dir.clone()).await;
+        command("/musl/basic/chdir", home_dir.clone()).await;
+
+        // clone
+        command("/musl/busybox echo Testing clone:", home_dir.clone()).await;
+        command("/musl/basic/clone", home_dir.clone()).await;
+
+        // close
+        command("/musl/busybox echo Testing close:", home_dir.clone()).await;
+        command("/musl/basic/close", home_dir.clone()).await;
+
+        // dup2
+        command("/musl/busybox echo Testing dup2:", home_dir.clone()).await;
+        command("/musl/basic/dup2", home_dir.clone()).await;
+
+        // dup
+        command("/musl/busybox echo Testing dup:", home_dir.clone()).await;
+        command("/musl/basic/dup", home_dir.clone()).await;
+
+        // execve
+        command("/musl/busybox echo Testing execve:", home_dir.clone()).await;
+        command("/musl/basic/execve", home_dir.clone()).await;
+
+        // exit
+        command("/musl/busybox echo Testing exit:", home_dir.clone()).await;
+        command("/musl/basic/exit", home_dir.clone()).await;
+
+        // fork
+        command("/musl/busybox echo Testing fork:", home_dir.clone()).await;
+        command("/musl/basic/fork", home_dir.clone()).await;
+
+        // fstat
+        command("/musl/busybox echo Testing fstat:", home_dir.clone()).await;
+        command("/musl/basic/fstat", home_dir.clone()).await;
+
+        // getcwd
+        command("/musl/busybox echo Testing getcwd:", home_dir.clone()).await;
+        command("/musl/basic/getcwd", home_dir.clone()).await;
+
+        // getdents
+        command("/musl/busybox echo Testing getdents:", home_dir.clone()).await;
+        command("/musl/basic/getdents", home_dir.clone()).await;
+
+        // getpid
+        command("/musl/busybox echo Testing getpid:", home_dir.clone()).await;
+        command("/musl/basic/getpid", home_dir.clone()).await;
+
+        // getppid
+        command("/musl/busybox echo Testing getppid:", home_dir.clone()).await;
+        command("/musl/basic/getppid", home_dir.clone()).await;
+
+        // gettimeofday
+        command("/musl/busybox echo Testing gettimeofday:", home_dir.clone()).await;
+        command("/musl/basic/gettimeofday", home_dir.clone()).await;
+
+        // mkdir_
+        command("/musl/busybox echo Testing mkdir_:", home_dir.clone()).await;
+        command("/musl/basic/mkdir_", home_dir.clone()).await;
+
+        // mmap
+        command("/musl/busybox echo Testing mmap:", home_dir.clone()).await;
+        //command("/musl/basic/mmap", home_dir.clone()).await;
+
+        // mount
+        command("/musl/busybox echo Testing mount:", home_dir.clone()).await;
+        command("/musl/basic/mount", home_dir.clone()).await;
+
+        // munmap
+        command("/musl/busybox echo Testing munmap:", home_dir.clone()).await;
+        command("/musl/basic/munmap", home_dir.clone()).await;
+
+        // openat
+        command("/musl/busybox echo Testing openat:", home_dir.clone()).await;
+        command("/musl/basic/openat", home_dir.clone()).await;
+
+        // open
+        command("/musl/busybox echo Testing open:", home_dir.clone()).await;
+        command("/musl/basic/open", home_dir.clone()).await;
+
+        // pipe
+        command("/musl/busybox echo Testing pipe:", home_dir.clone()).await;
+        command("/musl/basic/pipe", home_dir.clone()).await;
+
+        // read
+        command("/musl/busybox echo Testing read:", home_dir.clone()).await;
+        command("/musl/basic/read", home_dir.clone()).await;
+
+        // times
+        command("/musl/busybox echo Testing times:", home_dir.clone()).await;
+        command("/musl/basic/times", home_dir.clone()).await;
+
+        // umount
+        command("/musl/busybox echo Testing umount:", home_dir.clone()).await;
+        command("/musl/basic/umount", home_dir.clone()).await;
+
+        // uname
+        command("/musl/busybox echo Testing uname:", home_dir.clone()).await;
+        command("/musl/basic/uname", home_dir.clone()).await;
+
+        // unlink
+        command("/musl/busybox echo Testing unlink:", home_dir.clone()).await;
+        command("/musl/basic/unlink", home_dir.clone()).await;
+
+        // wait
+        command("/musl/busybox echo Testing wait:", home_dir.clone()).await;
+        command("/musl/basic/wait", home_dir.clone()).await;
+
+        // waitpid
+        command("/musl/busybox echo Testing waitpid:", home_dir.clone()).await;
+        command("/musl/basic/waitpid", home_dir.clone()).await;
+
+        // write
+        command("/musl/busybox echo Testing write:", home_dir.clone()).await;
+        command("/musl/basic/write", home_dir.clone()).await;
+
+        // yield
+        command("/musl/busybox echo Testing yield:", home_dir.clone()).await;
+        command("/musl/basic/yield", home_dir.clone()).await;
         command(
             "/musl/busybox echo #### OS COMP TEST GROUP END basic-musl ####",
             home_dir.clone(),
@@ -612,11 +734,182 @@ pub async fn initproc() {
             glibc_home_dir.clone(),
         )
         .await;
+        // command(
+        //     "/glibc/busybox sh /glibc/basic/run-all.sh",
+        //     glibc_home_dir.clone(),
+        // )
+        // .await;
+        // brk
+        command("/glibc/busybox echo Testing brk:", glibc_home_dir.clone()).await;
+        command("/glibc/basic/brk", glibc_home_dir.clone()).await;
+
+        // chdir
+        command("/glibc/busybox echo Testing chdir:", glibc_home_dir.clone()).await;
+        command("/glibc/basic/chdir", glibc_home_dir.clone()).await;
+
+        // clone
+        command("/glibc/busybox echo Testing clone:", glibc_home_dir.clone()).await;
+        command("/glibc/basic/clone", glibc_home_dir.clone()).await;
+
+        // close
+        command("/glibc/busybox echo Testing close:", glibc_home_dir.clone()).await;
+        command("/glibc/basic/close", glibc_home_dir.clone()).await;
+
+        // dup2
+        command("/glibc/busybox echo Testing dup2:", glibc_home_dir.clone()).await;
+        command("/glibc/basic/dup2", glibc_home_dir.clone()).await;
+
+        // dup
+        command("/glibc/busybox echo Testing dup:", glibc_home_dir.clone()).await;
+        command("/glibc/basic/dup", glibc_home_dir.clone()).await;
+
+        // execve
         command(
-            "/glibc/busybox sh /glibc/basic/run-all.sh",
+            "/glibc/busybox echo Testing execve:",
             glibc_home_dir.clone(),
         )
         .await;
+        command("/glibc/basic/execve", glibc_home_dir.clone()).await;
+
+        // exit
+        command("/glibc/busybox echo Testing exit:", glibc_home_dir.clone()).await;
+        command("/glibc/basic/exit", glibc_home_dir.clone()).await;
+
+        // fork
+        command("/glibc/busybox echo Testing fork:", glibc_home_dir.clone()).await;
+        command("/glibc/basic/fork", glibc_home_dir.clone()).await;
+
+        // fstat
+        command("/glibc/busybox echo Testing fstat:", glibc_home_dir.clone()).await;
+        command("/glibc/basic/fstat", glibc_home_dir.clone()).await;
+
+        // getcwd
+        command(
+            "/glibc/busybox echo Testing getcwd:",
+            glibc_home_dir.clone(),
+        )
+        .await;
+        command("/glibc/basic/getcwd", glibc_home_dir.clone()).await;
+
+        // getdents
+        command(
+            "/glibc/busybox echo Testing getdents:",
+            glibc_home_dir.clone(),
+        )
+        .await;
+        command("/glibc/basic/getdents", glibc_home_dir.clone()).await;
+
+        // getpid
+        command(
+            "/glibc/busybox echo Testing getpid:",
+            glibc_home_dir.clone(),
+        )
+        .await;
+        command("/glibc/basic/getpid", glibc_home_dir.clone()).await;
+
+        // getppid
+        command(
+            "/glibc/busybox echo Testing getppid:",
+            glibc_home_dir.clone(),
+        )
+        .await;
+        command("/glibc/basic/getppid", glibc_home_dir.clone()).await;
+
+        // gettimeofday
+        command(
+            "/glibc/busybox echo Testing gettimeofday:",
+            glibc_home_dir.clone(),
+        )
+        .await;
+        command("/glibc/basic/gettimeofday", glibc_home_dir.clone()).await;
+
+        // mkdir_
+        command(
+            "/glibc/busybox echo Testing mkdir_:",
+            glibc_home_dir.clone(),
+        )
+        .await;
+        command("/glibc/basic/mkdir_", glibc_home_dir.clone()).await;
+
+        // mmap
+        command("/glibc/busybox echo Testing mmap:", glibc_home_dir.clone()).await;
+        //command("/glibc/basic/mmap", glibc_home_dir.clone()).await;
+
+        // mount
+        command("/glibc/busybox echo Testing mount:", glibc_home_dir.clone()).await;
+        command("/glibc/basic/mount", glibc_home_dir.clone()).await;
+
+        // munmap
+        command(
+            "/glibc/busybox echo Testing munmap:",
+            glibc_home_dir.clone(),
+        )
+        .await;
+        command("/glibc/basic/munmap", glibc_home_dir.clone()).await;
+
+        // openat
+        command(
+            "/glibc/busybox echo Testing openat:",
+            glibc_home_dir.clone(),
+        )
+        .await;
+        command("/glibc/basic/openat", glibc_home_dir.clone()).await;
+
+        // open
+        command("/glibc/busybox echo Testing open:", glibc_home_dir.clone()).await;
+        command("/glibc/basic/open", glibc_home_dir.clone()).await;
+
+        // pipe
+        command("/glibc/busybox echo Testing pipe:", glibc_home_dir.clone()).await;
+        command("/glibc/basic/pipe", glibc_home_dir.clone()).await;
+
+        // read
+        command("/glibc/busybox echo Testing read:", glibc_home_dir.clone()).await;
+        command("/glibc/basic/read", glibc_home_dir.clone()).await;
+
+        // times
+        command("/glibc/busybox echo Testing times:", glibc_home_dir.clone()).await;
+        command("/glibc/basic/times", glibc_home_dir.clone()).await;
+
+        // umount
+        command(
+            "/glibc/busybox echo Testing umount:",
+            glibc_home_dir.clone(),
+        )
+        .await;
+        command("/glibc/basic/umount", glibc_home_dir.clone()).await;
+
+        // uname
+        command("/glibc/busybox echo Testing uname:", glibc_home_dir.clone()).await;
+        command("/glibc/basic/uname", glibc_home_dir.clone()).await;
+
+        // unlink
+        command(
+            "/glibc/busybox echo Testing unlink:",
+            glibc_home_dir.clone(),
+        )
+        .await;
+        command("/glibc/basic/unlink", glibc_home_dir.clone()).await;
+
+        // wait
+        command("/glibc/busybox echo Testing wait:", glibc_home_dir.clone()).await;
+        command("/glibc/basic/wait", glibc_home_dir.clone()).await;
+
+        // waitpid
+        command(
+            "/glibc/busybox echo Testing waitpid:",
+            glibc_home_dir.clone(),
+        )
+        .await;
+        command("/glibc/basic/waitpid", glibc_home_dir.clone()).await;
+
+        // write
+        command("/glibc/busybox echo Testing write:", glibc_home_dir.clone()).await;
+        command("/glibc/basic/write", glibc_home_dir.clone()).await;
+
+        // yield
+        command("/glibc/busybox echo Testing yield:", glibc_home_dir.clone()).await;
+        command("/glibc/basic/yield", glibc_home_dir.clone()).await;
         command(
             "/glibc/busybox echo #### OS COMP TEST GROUP END basic-glibc ####",
             glibc_home_dir.clone().clone(),
