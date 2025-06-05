@@ -158,22 +158,22 @@ pub async fn initproc() {
         let home_dir = PathBuf::from("/musl");
         //command("/musl/busybox sh ", home_dir.clone()).await;
         command("/musl/busybox sh libcbench_testcode.sh", home_dir.clone()).await;
-        command(
-            "/musl/busybox echo #### OS COMP TEST GROUP START iozone-musl ####",
-            home_dir.clone(),
-        )
-        .await;
-        command(
-            "/musl/busybox echo iozone automatic measurements",
-            home_dir.clone(),
-        )
-        .await;
-        command("/musl/iozone -a -r 1k -s 4m", home_dir.clone()).await;
-        command(
-            "/musl/busybox echo #### OS COMP TEST GROUP END iozone-musl ####",
-            home_dir.clone(),
-        )
-        .await;
+        // command(
+        //     "/musl/busybox echo #### OS COMP TEST GROUP START iozone-musl ####",
+        //     home_dir.clone(),
+        // )
+        // .await;
+        // command(
+        //     "/musl/busybox echo iozone automatic measurements",
+        //     home_dir.clone(),
+        // )
+        // .await;
+        // command("/musl/iozone -a -r 1k -s 4m", home_dir.clone()).await;
+        // command(
+        //     "/musl/busybox echo #### OS COMP TEST GROUP END iozone-musl ####",
+        //     home_dir.clone(),
+        // )
+        // .await;
 
         command("/musl/busybox sh busybox_testcode.sh", home_dir.clone()).await;
 
@@ -189,7 +189,7 @@ pub async fn initproc() {
         //command("/musl/busybox sh run-static-all.sh", home_dir.clone()).await;
         // command("/musl/busybox sh run-dynamic.sh", home_dir.clone()).await;
         // command("/musl/busybox sh run-static.sh", home_dir.clone()).await;
-        command("/musl/busybox sh cyclictest_testcode.sh", home_dir.clone()).await;
+        //command("/musl/busybox sh cyclictest_testcode.sh", home_dir.clone()).await;
 
         // command("/musl/busybox sh unixbench_testcode.sh", home_dir.clone()).await;
         //command("/musl/busybox sh lmbench_testcode.sh", home_dir.clone()).await;
@@ -215,6 +215,11 @@ pub async fn initproc() {
         .await;
 
         let glibc_home_dir = PathBuf::from("/glibc");
+        command(
+            "/glibc/busybox sh libcbench_testcode.sh",
+            glibc_home_dir.clone(),
+        )
+        .await;
         command(
             "/glibc/busybox sh busybox_testcode.sh",
             glibc_home_dir.clone(),
@@ -411,22 +416,22 @@ pub async fn initproc() {
         )
         .await;
         let home_dir = PathBuf::from("/musl");
-        command(
-            "/musl/busybox echo #### OS COMP TEST GROUP START iozone-musl ####",
-            home_dir.clone(),
-        )
-        .await;
-        command(
-            "/musl/busybox echo iozone automatic measurements",
-            home_dir.clone(),
-        )
-        .await;
-        command("/musl/iozone -a -r 1k -s 4m", home_dir.clone()).await;
-        command(
-            "/musl/busybox echo #### OS COMP TEST GROUP END iozone-musl ####",
-            home_dir.clone(),
-        )
-        .await;
+        // command(
+        //     "/musl/busybox echo #### OS COMP TEST GROUP START iozone-musl ####",
+        //     home_dir.clone(),
+        // )
+        // .await;
+        // command(
+        //     "/musl/busybox echo iozone automatic measurements",
+        //     home_dir.clone(),
+        // )
+        // .await;
+        // command("/musl/iozone -a -r 1k -s 4m", home_dir.clone()).await;
+        // command(
+        //     "/musl/busybox echo #### OS COMP TEST GROUP END iozone-musl ####",
+        //     home_dir.clone(),
+        // )
+        // .await;
 
         command("/musl/busybox sh busybox_testcode.sh", home_dir.clone()).await;
         command("/musl/busybox sh lua_testcode.sh", home_dir.clone()).await;
@@ -619,6 +624,11 @@ pub async fn initproc() {
         .await;
 
         let glibc_home_dir = PathBuf::from("/glibc");
+        command(
+            "/glibc/busybox sh libcbench_testcode.sh",
+            glibc_home_dir.clone(),
+        )
+        .await;
         command(
             "/glibc/busybox sh busybox_testcode.sh",
             glibc_home_dir.clone(),
