@@ -23,7 +23,7 @@ all: build-riscv build-loongarch
 build-riscv:
 	@echo "Building RISC-V kernel..."
 	@if [ -d dotcargo ]; then mv dotcargo .cargo; fi
-	@BOARD=qemu LOG=$(LOG) RUSTFLAGS="-Clink-arg=-no-pie --cfg=driver=\"kvirtio\" --cfg=board=\"qemu\" --cfg=root_fs=\"ext4\"" \
+	@GITHUB_RUN_ID=1 RUSTUP_OFFLINE=1 BOARD=qemu LOG=$(LOG) RUSTFLAGS="-Clink-arg=-no-pie --cfg=driver=\"kvirtio\" --cfg=board=\"qemu\" --cfg=root_fs=\"ext4\"" \
 	cargo build --target $(RISCV_TARGET) --features "$(RISCV_FEATURES)" --release --offline || exit 1
 	@riscv64-unknown-elf-objcopy -O binary $(RISCV_KERNEL_ELF) $(RISCV_KERNEL_OUT)
 	@if [ -d .cargo ]; then mv .cargo dotcargo; fi
@@ -31,7 +31,7 @@ build-riscv:
 build-loongarch:
 	@echo "Building LoongArch kernel..."
 	@if [ -d dotcargo ]; then mv dotcargo .cargo; fi
-	@BOARD=qemu LOG=$(LOG) RUSTFLAGS="-Clink-arg=-no-pie --cfg=driver=\"kvirtio\" --cfg=board=\"qemu\" --cfg=root_fs=\"ext4\"" \
+	@GITHUB_RUN_ID=1 RUSTUP_OFFLINE=1 BOARD=qemu LOG=$(LOG) RUSTFLAGS="-Clink-arg=-no-pie --cfg=driver=\"kvirtio\" --cfg=board=\"qemu\" --cfg=root_fs=\"ext4\"" \
 	cargo build --target $(LOONGARCH_TARGET) --features "$(LOONGARCH_FEATURES)" --release --offline || exit 1
 	@cp $(LOONGARCH_KERNEL_ELF) $(LOONGARCH_KERNEL_OUT) || exit 1
 	@if [ -d .cargo ]; then mv .cargo dotcargo; fi
