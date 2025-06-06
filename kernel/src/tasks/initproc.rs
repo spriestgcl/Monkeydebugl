@@ -402,8 +402,8 @@ pub async fn initproc() {
             home_dir.clone(),
         )
         .await;
-        //command("/musl/busybox sh /musl/basic/run-all.sh", home_dir.clone()).await;
-        command("/musl/busybox echo Testing brk:", home_dir.clone()).await;
+        command("/musl/busybox sh /musl/basic/run-all.sh", home_dir.clone()).await;
+        /*  command("/musl/busybox echo Testing brk:", home_dir.clone()).await;
         command("/musl/basic/brk", home_dir.clone()).await;
 
         // chdir
@@ -524,7 +524,7 @@ pub async fn initproc() {
 
         // yield
         command("/musl/busybox echo Testing yield:", home_dir.clone()).await;
-        command("/musl/basic/yield", home_dir.clone()).await;
+        command("/musl/basic/yield", home_dir.clone()).await;*/
         command(
             "/musl/busybox echo #### OS COMP TEST GROUP END basic-musl ####",
             home_dir.clone(),
@@ -734,13 +734,13 @@ pub async fn initproc() {
             glibc_home_dir.clone(),
         )
         .await;
-        // command(
-        //     "/glibc/busybox sh /glibc/basic/run-all.sh",
-        //     glibc_home_dir.clone(),
-        // )
-        // .await;
+        command(
+            "/glibc/busybox sh /glibc/basic/run-all.sh",
+            glibc_home_dir.clone(),
+        )
+        .await;
         // brk
-        command("/glibc/busybox echo Testing brk:", glibc_home_dir.clone()).await;
+        /*command("/glibc/busybox echo Testing brk:", glibc_home_dir.clone()).await;
         command("/glibc/basic/brk", glibc_home_dir.clone()).await;
 
         // chdir
@@ -909,7 +909,7 @@ pub async fn initproc() {
 
         // yield
         command("/glibc/busybox echo Testing yield:", glibc_home_dir.clone()).await;
-        command("/glibc/basic/yield", glibc_home_dir.clone()).await;
+        command("/glibc/basic/yield", glibc_home_dir.clone()).await;*/
         command(
             "/glibc/busybox echo #### OS COMP TEST GROUP END basic-glibc ####",
             glibc_home_dir.clone().clone(),

@@ -298,7 +298,7 @@ impl UserTaskContainer {
             .parent
             .read()
             .upgrade()
-            .map(|x| x.task_id)
+            .map(|x| x.process_id)
             .ok_or(Errno::EPERM)
     }
 
@@ -320,36 +320,39 @@ impl UserTaskContainer {
     ) -> SysResult {
         let original_op = op;
         let op = if op >= 0x80 { op - 0x80 } else { op };
-        
+
         warn!(
             "[task {}] sys_futex @ uaddr: {:#x} original_op: {:#x} normalized_op: {} value: {:#x}, value2: {:#x}, uaddr2: {:#x}, value3: {:#x}",
             self.tid, uaddr_ptr.addr(), original_op, op, value, value2, uaddr2, value3
         );
-        
+
         // 检查地址有效性
         if !uaddr_ptr.is_valid() {
             warn!("[task {}] sys_futex: invalid uaddr pointer", self.tid);
             return Err(Errno::EFAULT);
         }
-        
+
         let uaddr = uaddr_ptr.get_mut();
-        
+
         // 更宽松的操作类型解析
         let flags = match op {
             0 => FutexFlags::Wait,
-            1 => FutexFlags::Wake, 
+            1 => FutexFlags::Wake,
             3 => FutexFlags::Requeue,
             _ => {
-                warn!("[task {}] sys_futex: unsupported operation {}, trying to continue anyway", self.tid, op);
+                warn!(
+                    "[task {}] sys_futex: unsupported operation {}, trying to continue anyway",
+                    self.tid, op
+                );
                 // 对于不支持的操作，尝试按照最接近的操作处理
                 if op <= 10 {
-                    FutexFlags::Wake  // 默认当作wake处理
+                    FutexFlags::Wake // 默认当作wake处理
                 } else {
-                    return Err(Errno::ENOSYS);  // 使用ENOSYS而不是EINVAL
+                    return Err(Errno::ENOSYS); // 使用ENOSYS而不是EINVAL
                 }
             }
         };
-        
+
         warn!(
             "[task {}] sys_futex mapped to flags: {:?}, uaddr value: {}, expected: {}",
             self.tid, flags, *uaddr, value
@@ -357,16 +360,28 @@ impl UserTaskContainer {
 
         match flags {
             FutexFlags::Wait => {
-                warn!("[task {}] FUTEX_WAIT: checking if *uaddr({:#x}) == value({}), actual: {}", 
-                    self.tid, uaddr_ptr.addr(), value, *uaddr);
-                    
+                warn!(
+                    "[task {}] FUTEX_WAIT: checking if *uaddr({:#x}) == value({}), actual: {}",
+                    self.tid,
+                    uaddr_ptr.addr(),
+                    value,
+                    *uaddr
+                );
+
                 if *uaddr == value as _ {
-                    warn!("[task {}] FUTEX_WAIT: values match, entering wait", self.tid);
+                    warn!(
+                        "[task {}] FUTEX_WAIT: values match, entering wait",
+                        self.tid
+                    );
                     let futex_table = self.task.pcb.lock().futex_table.clone();
                     let mut table = futex_table.lock();
                     match table.get_mut(&uaddr_ptr.addr()) {
                         Some(t) => {
-                            warn!("[task {}] FUTEX_WAIT: adding to existing wait queue (size: {})", self.tid, t.len());
+                            warn!(
+                                "[task {}] FUTEX_WAIT: adding to existing wait queue (size: {})",
+                                self.tid,
+                                t.len()
+                            );
                             t.push(self.tid);
                         }
                         None => {
@@ -378,7 +393,10 @@ impl UserTaskContainer {
                     let wait_func = WaitFutex(futex_table.clone(), self.tid);
                     if value2 != 0 {
                         let timeout = UserRef::<TimeSpec>::from(value2).get_mut();
-                        warn!("[task {}] FUTEX_WAIT: with timeout {}s {}ns", self.tid, timeout.sec, timeout.nsec);
+                        warn!(
+                            "[task {}] FUTEX_WAIT: with timeout {}s {}ns",
+                            self.tid, timeout.sec, timeout.nsec
+                        );
                         match select(wait_func, WaitUntilsec(current_nsec() + timeout.to_nsec()))
                             .await
                         {
@@ -396,33 +414,42 @@ impl UserTaskContainer {
                         wait_func.await
                     }
                 } else {
-                    warn!("[task {}] FUTEX_WAIT: values don't match ({} != {}), returning EAGAIN", 
-                        self.tid, *uaddr, value);
+                    warn!(
+                        "[task {}] FUTEX_WAIT: values don't match ({} != {}), returning EAGAIN",
+                        self.tid, *uaddr, value
+                    );
                     Err(Errno::EAGAIN)
                 }
             }
             FutexFlags::Wake => {
-                warn!("[task {}] FUTEX_WAKE: waking up to {} threads at uaddr {:#x}", self.tid, value, uaddr_ptr.addr());
+                warn!(
+                    "[task {}] FUTEX_WAKE: waking up to {} threads at uaddr {:#x}",
+                    self.tid,
+                    value,
+                    uaddr_ptr.addr()
+                );
                 let futex_table = self.task.pcb.lock().futex_table.clone();
                 let count = futex_wake(futex_table, uaddr_ptr.addr(), value);
-                warn!("[task {}] FUTEX_WAKE: actually woke {} threads", self.tid, count);
+                warn!(
+                    "[task {}] FUTEX_WAKE: actually woke {} threads",
+                    self.tid, count
+                );
                 yield_now().await;
                 Ok(count)
             }
             FutexFlags::Requeue => {
-                warn!("[task {}] FUTEX_REQUEUE: from {:#x} to {:#x}", self.tid, uaddr_ptr.addr(), uaddr2);
-                let futex_table = self.task.pcb.lock().futex_table.clone();
-                let count = futex_requeue(
-                    futex_table,
+                warn!(
+                    "[task {}] FUTEX_REQUEUE: from {:#x} to {:#x}",
+                    self.tid,
                     uaddr_ptr.addr(),
-                    value,
-                    uaddr2,
-                    value2,
+                    uaddr2
                 );
+                let futex_table = self.task.pcb.lock().futex_table.clone();
+                let count = futex_requeue(futex_table, uaddr_ptr.addr(), value, uaddr2, value2);
                 warn!("[task {}] FUTEX_REQUEUE: moved {} threads", self.tid, count);
                 Ok(count)
-            },
-            _ => todo!()
+            }
+            _ => todo!(),
         }
     }
 
@@ -467,36 +494,37 @@ impl UserTaskContainer {
     }
 
     pub async fn sys_tgkill(&self, tgid: usize, tid: usize, signum: usize) -> SysResult {
-        debug!("sys_tgkill @ tgid: {}, tid: {}, signum: {}", tgid, tid, signum);
-        
+        debug!(
+            "sys_tgkill @ tgid: {}, tid: {}, signum: {}",
+            tgid, tid, signum
+        );
+
         // tgkill 向线程组中的特定线程发送信号
         // tgid 是线程组ID（进程ID），tid 是线程ID
-        
+
         let target_signal = SignalFlags::from_num(signum);
-        
+
         // 查找目标线程
         let mut target_thread = None;
-        
+
         // 如果目标是当前线程
         if tid == self.tid && tgid == self.task.process_id {
             target_thread = Some(self.task.clone());
         } else {
             // 在当前进程的线程中查找
             target_thread = self.task.inner_map(|x| {
-                x.threads
-                    .iter()
-                    .find_map(|weak_thread| {
-                        weak_thread.upgrade().and_then(|thread| {
-                            if thread.task_id == tid && thread.process_id == tgid {
-                                Some(thread)
-                            } else {
-                                None
-                            }
-                        })
+                x.threads.iter().find_map(|weak_thread| {
+                    weak_thread.upgrade().and_then(|thread| {
+                        if thread.task_id == tid && thread.process_id == tgid {
+                            Some(thread)
+                        } else {
+                            None
+                        }
                     })
+                })
             });
         }
-        
+
         match target_thread {
             Some(thread) => {
                 let mut tcb = thread.tcb.write();
