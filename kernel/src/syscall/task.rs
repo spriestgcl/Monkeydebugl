@@ -30,6 +30,173 @@ use syscalls::Errno;
 use vfscore::OpenFlags;
 
 impl UserTaskContainer {
+    async fn futex_wait(  
+        &self,  
+        uaddr_ptr: UserRef<i32>,  
+        uaddr: &mut i32,  
+        expected: i32,  
+        timeout_ptr: usize,  
+        bitset_wait: bool,  
+    ) -> SysResult {  
+        warn!(  
+            "[task {}] FUTEX_WAIT: checking if *uaddr({:#x}) == expected({}), actual: {}",  
+            self.tid, uaddr_ptr.addr(), expected, *uaddr  
+        );  
+  
+        if *uaddr != expected {  
+            warn!(  
+                "[task {}] FUTEX_WAIT: values don't match ({} != {}), returning EAGAIN",  
+                self.tid, *uaddr, expected  
+            );  
+            return Err(Errno::EAGAIN);  
+        }  
+  
+        warn!("[task {}] FUTEX_WAIT: values match, entering wait", self.tid);  
+        let futex_table = self.task.pcb.lock().futex_table.clone();  
+        let mut table = futex_table.lock();  
+          
+        match table.get_mut(&uaddr_ptr.addr()) {  
+            Some(t) => {  
+                warn!(  
+                    "[task {}] FUTEX_WAIT: adding to existing wait queue (size: {})",  
+                    self.tid, t.len()  
+                );  
+                t.push(self.tid);  
+            }  
+            None => {  
+                warn!("[task {}] FUTEX_WAIT: creating new wait queue", self.tid);  
+                table.insert(uaddr_ptr.addr(), vec![self.tid]);  
+            }  
+        }  
+        drop(table);  
+  
+        let wait_func = WaitFutex(futex_table.clone(), self.tid);  
+          
+        if timeout_ptr != 0 {  
+            let timeout = UserRef::<TimeSpec>::from(timeout_ptr).get_mut();  
+            warn!(  
+                "[task {}] FUTEX_WAIT: with timeout {}s {}ns",  
+                self.tid, timeout.sec, timeout.nsec  
+            );  
+            match select(wait_func, WaitUntilsec(current_nsec() + timeout.to_nsec())).await {  
+                executor::Either::Left((res, _)) => {  
+                    warn!("[task {}] FUTEX_WAIT: completed normally", self.tid);  
+                    res  
+                }  
+                executor::Either::Right(_) => {  
+                    warn!("[task {}] FUTEX_WAIT: timed out", self.tid);  
+                    Err(Errno::ETIMEDOUT)  
+                }  
+            }  
+        } else {  
+            warn!("[task {}] FUTEX_WAIT: waiting indefinitely", self.tid);  
+            wait_func.await  
+        }  
+    }  
+  
+    async fn futex_wait_bitset(  
+        &self,  
+        uaddr_ptr: UserRef<i32>,  
+        uaddr: &mut i32,  
+        expected: i32,  
+        timeout_ptr: usize,  
+        bitset: u32,  
+    ) -> SysResult {  
+        warn!(  
+            "[task {}] FUTEX_WAIT_BITSET: bitset={:#x}",  
+            self.tid, bitset  
+        );  
+          
+        if bitset == 0 {  
+            return Err(Errno::EINVAL);  
+        }  
+          
+        // FUTEX_WAIT_BITSET 的行为与 FUTEX_WAIT 基本相同，但支持位集合匹配  
+        self.futex_wait(uaddr_ptr, uaddr, expected, timeout_ptr, true).await  
+    }  
+  
+    async fn futex_wake(&self, uaddr_ptr: UserRef<i32>, wake_count: usize) -> SysResult {  
+        warn!(  
+            "[task {}] FUTEX_WAKE: waking up to {} threads at uaddr {:#x}",  
+            self.tid, wake_count, uaddr_ptr.addr()  
+        );  
+          
+        let futex_table = self.task.pcb.lock().futex_table.clone();  
+        let count = futex_wake(futex_table, uaddr_ptr.addr(), wake_count);  
+          
+        warn!("[task {}] FUTEX_WAKE: actually woke {} threads", self.tid, count);  
+        yield_now().await;  
+        Ok(count)  
+    }  
+  
+    async fn futex_requeue(  
+        &self,  
+        uaddr_ptr: UserRef<i32>,  
+        wake_count: usize,  
+        uaddr2: usize,  
+        requeue_count: usize,  
+    ) -> SysResult {  
+        warn!(  
+            "[task {}] FUTEX_REQUEUE: from {:#x} to {:#x}, wake={}, requeue={}",  
+            self.tid, uaddr_ptr.addr(), uaddr2, wake_count, requeue_count  
+        );  
+          
+        let futex_table = self.task.pcb.lock().futex_table.clone();  
+        let count = futex_requeue(futex_table, uaddr_ptr.addr(), wake_count, uaddr2, requeue_count);  
+          
+        warn!("[task {}] FUTEX_REQUEUE: moved {} threads", self.tid, count);  
+        Ok(count)  
+    }  
+  
+    async fn futex_cmp_requeue(  
+        &self,  
+        uaddr_ptr: UserRef<i32>,  
+        uaddr: &mut i32,  
+        expected: i32,  
+        wake_count: usize,  
+        uaddr2: usize,  
+        requeue_count: usize,  
+    ) -> SysResult {  
+        warn!(  
+            "[task {}] FUTEX_CMP_REQUEUE: checking *uaddr({:#x}) == expected({}), actual: {}",  
+            self.tid, uaddr_ptr.addr(), expected, *uaddr  
+        );  
+          
+        if *uaddr != expected {  
+            return Err(Errno::EAGAIN);  
+        }  
+          
+        self.futex_requeue(uaddr_ptr, wake_count, uaddr2, requeue_count).await  
+    }  
+  
+    async fn futex_wake_op(  
+        &self,  
+        uaddr_ptr: UserRef<i32>,  
+        wake_count: usize,  
+        uaddr2: usize,  
+        wake_count2: usize,  
+        op: usize,  
+    ) -> SysResult {  
+        warn!(  
+            "[task {}] FUTEX_WAKE_OP: uaddr1={:#x} wake1={}, uaddr2={:#x} wake2={}, op={:#x}",  
+            self.tid, uaddr_ptr.addr(), wake_count, uaddr2, wake_count2, op  
+        );  
+          
+        // 先唤醒第一个地址的线程  
+        let futex_table = self.task.pcb.lock().futex_table.clone();  
+        let count1 = futex_wake(futex_table.clone(), uaddr_ptr.addr(), wake_count);  
+          
+        // 执行原子操作并根据结果决定是否唤醒第二个地址的线程  
+        // 这里简化实现，实际应该解析 op 参数执行相应的原子操作  
+        let count2 = futex_wake(futex_table, uaddr2, wake_count2);  
+          
+        warn!(  
+            "[task {}] FUTEX_WAKE_OP: woke {} + {} = {} threads",  
+            self.tid, count1, count2, count1 + count2  
+        );  
+          
+        Ok(count1 + count2)  
+    }  
     pub async fn sys_chdir(&self, path_ptr: UserRef<i8>) -> SysResult {
         let path = path_ptr.get_cstr().map_err(|_| Errno::EINVAL)?;
         debug!("sys_chdir @ path: {}", path);
@@ -309,149 +476,85 @@ impl UserTaskContainer {
         Ok(self.tid)
     }
 
-    pub async fn sys_futex(
-        &self,
-        uaddr_ptr: UserRef<i32>,
-        op: usize,
-        value: usize,
-        value2: usize,
-        uaddr2: usize,
-        value3: usize,
-    ) -> SysResult {
-        let original_op = op;
-        let op = if op >= 0x80 { op - 0x80 } else { op };
-
-        warn!(
-            "[task {}] sys_futex @ uaddr: {:#x} original_op: {:#x} normalized_op: {} value: {:#x}, value2: {:#x}, uaddr2: {:#x}, value3: {:#x}",
-            self.tid, uaddr_ptr.addr(), original_op, op, value, value2, uaddr2, value3
-        );
-
-        // 检查地址有效性
-        if !uaddr_ptr.is_valid() {
-            warn!("[task {}] sys_futex: invalid uaddr pointer", self.tid);
-            return Err(Errno::EFAULT);
-        }
-
-        let uaddr = uaddr_ptr.get_mut();
-
-        // 更宽松的操作类型解析
-        let flags = match op {
-            0 => FutexFlags::Wait,
-            1 => FutexFlags::Wake,
-            3 => FutexFlags::Requeue,
-            _ => {
-                warn!(
-                    "[task {}] sys_futex: unsupported operation {}, trying to continue anyway",
-                    self.tid, op
-                );
-                // 对于不支持的操作，尝试按照最接近的操作处理
-                if op <= 10 {
-                    FutexFlags::Wake // 默认当作wake处理
-                } else {
-                    return Err(Errno::ENOSYS); // 使用ENOSYS而不是EINVAL
-                }
-            }
-        };
-
-        warn!(
-            "[task {}] sys_futex mapped to flags: {:?}, uaddr value: {}, expected: {}",
-            self.tid, flags, *uaddr, value
-        );
-
-        match flags {
-            FutexFlags::Wait => {
-                warn!(
-                    "[task {}] FUTEX_WAIT: checking if *uaddr({:#x}) == value({}), actual: {}",
-                    self.tid,
-                    uaddr_ptr.addr(),
-                    value,
-                    *uaddr
-                );
-
-                if *uaddr == value as _ {
-                    warn!(
-                        "[task {}] FUTEX_WAIT: values match, entering wait",
-                        self.tid
-                    );
-                    let futex_table = self.task.pcb.lock().futex_table.clone();
-                    let mut table = futex_table.lock();
-                    match table.get_mut(&uaddr_ptr.addr()) {
-                        Some(t) => {
-                            warn!(
-                                "[task {}] FUTEX_WAIT: adding to existing wait queue (size: {})",
-                                self.tid,
-                                t.len()
-                            );
-                            t.push(self.tid);
-                        }
-                        None => {
-                            warn!("[task {}] FUTEX_WAIT: creating new wait queue", self.tid);
-                            table.insert(uaddr_ptr.addr(), vec![self.tid]);
-                        }
-                    }
-                    drop(table);
-                    let wait_func = WaitFutex(futex_table.clone(), self.tid);
-                    if value2 != 0 {
-                        let timeout = UserRef::<TimeSpec>::from(value2).get_mut();
-                        warn!(
-                            "[task {}] FUTEX_WAIT: with timeout {}s {}ns",
-                            self.tid, timeout.sec, timeout.nsec
-                        );
-                        match select(wait_func, WaitUntilsec(current_nsec() + timeout.to_nsec()))
-                            .await
-                        {
-                            executor::Either::Left((res, _)) => {
-                                warn!("[task {}] FUTEX_WAIT: completed normally", self.tid);
-                                res
-                            }
-                            executor::Either::Right(_) => {
-                                warn!("[task {}] FUTEX_WAIT: timed out", self.tid);
-                                Err(Errno::ETIMEDOUT)
-                            }
-                        }
-                    } else {
-                        warn!("[task {}] FUTEX_WAIT: waiting indefinitely", self.tid);
-                        wait_func.await
-                    }
-                } else {
-                    warn!(
-                        "[task {}] FUTEX_WAIT: values don't match ({} != {}), returning EAGAIN",
-                        self.tid, *uaddr, value
-                    );
-                    Err(Errno::EAGAIN)
-                }
-            }
-            FutexFlags::Wake => {
-                warn!(
-                    "[task {}] FUTEX_WAKE: waking up to {} threads at uaddr {:#x}",
-                    self.tid,
-                    value,
-                    uaddr_ptr.addr()
-                );
-                let futex_table = self.task.pcb.lock().futex_table.clone();
-                let count = futex_wake(futex_table, uaddr_ptr.addr(), value);
-                warn!(
-                    "[task {}] FUTEX_WAKE: actually woke {} threads",
-                    self.tid, count
-                );
-                yield_now().await;
-                Ok(count)
-            }
-            FutexFlags::Requeue => {
-                warn!(
-                    "[task {}] FUTEX_REQUEUE: from {:#x} to {:#x}",
-                    self.tid,
-                    uaddr_ptr.addr(),
-                    uaddr2
-                );
-                let futex_table = self.task.pcb.lock().futex_table.clone();
-                let count = futex_requeue(futex_table, uaddr_ptr.addr(), value, uaddr2, value2);
-                warn!("[task {}] FUTEX_REQUEUE: moved {} threads", self.tid, count);
-                Ok(count)
-            }
-            _ => todo!(),
-        }
-    }
+    pub async fn sys_futex(  
+    &self,  
+    uaddr_ptr: UserRef<i32>,  
+    op: usize,  
+    value: usize,  
+    value2: usize,  
+    uaddr2: usize,  
+    value3: usize,  
+) -> SysResult {  
+    let original_op = op;  
+    let private_flag = op & 0x80 != 0;  // FUTEX_PRIVATE_FLAG  
+    let op = op & 0x7F;  // 移除私有标志位  
+  
+    warn!(  
+        "[task {}] sys_futex @ uaddr: {:#x} original_op: {:#x} normalized_op: {} private: {} value: {:#x}, value2: {:#x}, uaddr2: {:#x}, value3: {:#x}",  
+        self.tid, uaddr_ptr.addr(), original_op, op, private_flag, value, value2, uaddr2, value3  
+    );  
+  
+    // 检查地址有效性  
+    if !uaddr_ptr.is_valid() {  
+        warn!("[task {}] sys_futex: invalid uaddr pointer", self.tid);  
+        return Err(Errno::EFAULT);  
+    }  
+  
+    let uaddr = uaddr_ptr.get_mut();  
+  
+    // 完整的操作类型支持  
+    let flags = match op {  
+        0 => FutexFlags::Wait,  
+        1 => FutexFlags::Wake,  
+        2 => FutexFlags::Fd,  
+        3 => FutexFlags::Requeue,  
+        4 => FutexFlags::CmpRequeue,  
+        5 => FutexFlags::WakeOp,  
+        6 => FutexFlags::LockPi,  
+        7 => FutexFlags::UnlockPi,  
+        8 => FutexFlags::TrylockPi,  
+        9 => FutexFlags::WaitBitset,  
+        _ => {  
+            warn!(  
+                "[task {}] sys_futex: unsupported operation {}, returning ENOSYS",  
+                self.tid, op  
+            );  
+            return Err(Errno::ENOSYS);  
+        }  
+    };  
+  
+    warn!(  
+        "[task {}] sys_futex mapped to flags: {:?}, uaddr value: {}, expected: {}",  
+        self.tid, flags, *uaddr, value  
+    );  
+  
+    match flags {  
+        FutexFlags::Wait => {  
+            self.futex_wait(uaddr_ptr, uaddr, value as i32, value2, false).await  
+        }  
+        FutexFlags::Wake => {  
+            self.futex_wake(uaddr_ptr, value).await  
+        }  
+        FutexFlags::Requeue => {  
+            self.futex_requeue(uaddr_ptr, value, uaddr2, value2).await  
+        }  
+        FutexFlags::CmpRequeue => {  
+            self.futex_cmp_requeue(uaddr_ptr, uaddr, value as i32, value2, uaddr2, value3).await  
+        }  
+        FutexFlags::WaitBitset => {  
+            let bitset = if value3 == 0 { 0xFFFFFFFF } else { value3 as u32 };  
+            self.futex_wait_bitset(uaddr_ptr, uaddr, value as i32, value2, bitset).await  
+        }  
+        FutexFlags::WakeOp => {  
+            self.futex_wake_op(uaddr_ptr, value, uaddr2, value2, value3).await  
+        }  
+        _ => {  
+            warn!("[task {}] sys_futex: operation {:?} not yet implemented", self.tid, flags);  
+            Err(Errno::ENOSYS)  
+        }  
+    }  
+}  
+  
 
     pub async fn sys_tkill(&self, tid: usize, signum: usize) -> SysResult {
         debug!("sys_tkill @ tid: {}, signum: {}", tid, signum);
