@@ -1,7 +1,7 @@
 use crate::IRQ;
 use xmas_elf::ElfFile;
 use super::UserTask;  
-use crate::tasks::initproc::{get_libc_path, get_glibc_path}; // 添加get_glibc_path导入  
+use crate::tasks::initproc::{get_libc_path, get_glibc_path,get_dyn_path}; // 添加get_glibc_path导入  
 use crate::{  
     consts::USER_DYN_ADDR,  
     tasks::{  
@@ -310,7 +310,7 @@ pub async fn exec_with_process(
                 let libc_path = match detect_libc_type(&elf) {  
                     LibcType::Musl => get_libc_path(),  
                     LibcType::Glibc => get_glibc_path(),  
-                    LibcType::Unknown => get_libc_path(), // 默认使用musl  
+                    LibcType::Unknown => get_dyn_path(), // 默认使用musl  
                 };  
                   
                 let mut new_args = vec![libc_path];  

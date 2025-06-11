@@ -32,7 +32,7 @@ use super::UserTask;
 /*Add：全局配置libc.so的路径 */
 static LIBC_PATH: Mutex<String> = Mutex::new(String::new());
 static GLIBC_PATH: Mutex<String> = Mutex::new(String::new());
-
+static DYN_PATH: Mutex<String> = Mutex::new(String::new());
 pub fn set_libc_path(path: String) {
     *LIBC_PATH.lock() = path;
 }
@@ -47,6 +47,13 @@ pub fn set_glibc_path(path: String) {
 
 pub fn get_glibc_path() -> String {
     GLIBC_PATH.lock().clone()
+}
+pub fn set_dyn_path(path: String) {
+    *DYN_PATH.lock() = path;
+}
+
+pub fn get_dyn_path() -> String {    
+    DYN_PATH.lock().clone()
 }
 fn clear() {
     DebugConsole::putchar(0x1b);
@@ -141,69 +148,18 @@ async fn command(cmd: &str, work_dir: PathBuf) {
 pub async fn initproc() {
     #[cfg(not(target_arch = "loongarch64"))]
     {
-        set_libc_path("/musl/lib/libc.so".to_string());
+        set_libc_path("/glibc/lib".to_string());
+        set_dyn_path("/musl/lib/libc.so".to_string());
         println!("start kernel tasks");
-        set_glibc_path("/glibc/lib/ld-linux-riscv64-lp64d.so.1".to_string());
-        let home_dir = PathBuf::from("/glibc");
-         command("/glibc/runtest.exe -w entry-static.exe pthread_exit_cancel", home_dir.clone()).await;
+        //set_dyn_path("/glibc/lib/ld-linux-riscv64-lp64d.so.1".to_string());
+        //let home_dir = PathBuf::from("/glibc");
+        // command("/glibc/runtest.exe -w entry-static.exe pthread_exit_cancel", home_dir.clone()).await;
 
         
         let home_dir = PathBuf::from("/musl/basic");        
          command("/musl/busybox sh", home_dir.clone()).await;
 
-        command(
-            "/musl/busybox echo #### OS COMP TEST GROUP START basic-musl ####",
-            home_dir.clone(),
-        )
-        .await;
-        command("/musl/busybox sh /musl/basic/run-all.sh", home_dir.clone()).await;
-        command(
-            "/musl/busybox echo #### OS COMP TEST GROUP END basic-musl ####",
-            home_dir.clone(),
-        )
-        .await;
-        let home_dir = PathBuf::from("/musl");
-        //command("/musl/busybox sh ", home_dir.clone()).await;
-        command("/musl/busybox sh libcbench_testcode.sh", home_dir.clone()).await;
-        // command(
-        //     "/musl/busybox echo #### OS COMP TEST GROUP START iozone-musl ####",
-        //     home_dir.clone(),
-        // )
-        // .await;
-        // command(
-        //     "/musl/busybox echo iozone automatic measurements",
-        //     home_dir.clone(),
-        // )
-        // .await;
-        // command("/musl/iozone -a -r 1k -s 4m", home_dir.clone()).await;
-        // command(
-        //     "/musl/busybox echo #### OS COMP TEST GROUP END iozone-musl ####",
-        //     home_dir.clone(),
-        // )
-        // .await;
-
-        command("/musl/busybox sh busybox_testcode.sh", home_dir.clone()).await;
-
-        command("/musl/busybox sh lua_testcode.sh", home_dir.clone()).await;
-        command("/musl/busybox sh libctest_testcode.sh", home_dir.clone()).await;
-        command(
-            "/musl/busybox echo #### OS COMP TEST GROUP END libctest-musl ####",
-            home_dir.clone().clone(),
-        )
-        .await;
-
-        //command("/musl/busybox sh run-dynamic-all.sh", home_dir.clone()).await;
-        //command("/musl/busybox sh run-static-all.sh", home_dir.clone()).await;
-        // command("/musl/busybox sh run-dynamic.sh", home_dir.clone()).await;
-        // command("/musl/busybox sh run-static.sh", home_dir.clone()).await;
-        //command("/musl/busybox sh cyclictest_testcode.sh", home_dir.clone()).await;
-
-        // command("/musl/busybox sh unixbench_testcode.sh", home_dir.clone()).await;
-        //command("/musl/busybox sh lmbench_testcode.sh", home_dir.clone()).await;
-        // command("/musl/busybox sh iperf_testcode.sh", home_dir.clone()).await;
-        // command("/musl/busybox sh multi.sh", home_dir.clone()).await;
-        // command("/musl/busybox sh iozone_testcode.sh", home_dir.clone()).await;
-        set_glibc_path("/glibc/lib/ld-linux-riscv64-lp64d.so.1".to_string());
+        set_dyn_path("/glibc/lib/ld-linux-riscv64-lp64d.so.1".to_string());
         let glibc_home_dir = PathBuf::from("/glibc/basic");
         command(
             "/glibc/busybox echo #### OS COMP TEST GROUP START basic-glibc ####",
@@ -397,6 +353,69 @@ pub async fn initproc() {
         //     glibc_home_dir.clone(),
         // )
         // .await;
+        set_dyn_path("/musl/lib/libc.so".to_string());
+        println!("start kernel tasks");
+        //set_dyn_path("/glibc/lib/ld-linux-riscv64-lp64d.so.1".to_string());
+        //let home_dir = PathBuf::from("/glibc");
+        // command("/glibc/runtest.exe -w entry-static.exe pthread_exit_cancel", home_dir.clone()).await;
+
+        
+        let home_dir = PathBuf::from("/musl/basic");        
+         command("/musl/busybox sh", home_dir.clone()).await;
+
+        command(
+            "/musl/busybox echo #### OS COMP TEST GROUP START basic-musl ####",
+            home_dir.clone(),
+        )
+        .await;
+        command("/musl/busybox sh /musl/basic/run-all.sh", home_dir.clone()).await;
+        command(
+            "/musl/busybox echo #### OS COMP TEST GROUP END basic-musl ####",
+            home_dir.clone(),
+        )
+        .await;
+        let home_dir = PathBuf::from("/musl");
+        //command("/musl/busybox sh ", home_dir.clone()).await;
+        command("/musl/busybox sh libcbench_testcode.sh", home_dir.clone()).await;
+        // command(
+        //     "/musl/busybox echo #### OS COMP TEST GROUP START iozone-musl ####",
+        //     home_dir.clone(),
+        // )
+        // .await;
+        // command(
+        //     "/musl/busybox echo iozone automatic measurements",
+        //     home_dir.clone(),
+        // )
+        // .await;
+        // command("/musl/iozone -a -r 1k -s 4m", home_dir.clone()).await;
+        // command(
+        //     "/musl/busybox echo #### OS COMP TEST GROUP END iozone-musl ####",
+        //     home_dir.clone(),
+        // )
+        // .await;
+
+        command("/musl/busybox sh busybox_testcode.sh", home_dir.clone()).await;
+
+        command("/musl/busybox sh lua_testcode.sh", home_dir.clone()).await;
+        command("/musl/busybox sh libctest_testcode.sh", home_dir.clone()).await;
+        command(
+            "/musl/busybox echo #### OS COMP TEST GROUP END libctest-musl ####",
+            home_dir.clone().clone(),
+        )
+        .await;
+
+        //command("/musl/busybox sh run-dynamic-all.sh", home_dir.clone()).await;
+        //command("/musl/busybox sh run-static-all.sh", home_dir.clone()).await;
+        // command("/musl/busybox sh run-dynamic.sh", home_dir.clone()).await;
+        // command("/musl/busybox sh run-static.sh", home_dir.clone()).await;
+        //command("/musl/busybox sh cyclictest_testcode.sh", home_dir.clone()).await;
+
+        // command("/musl/busybox sh unixbench_testcode.sh", home_dir.clone()).await;
+        //command("/musl/busybox sh lmbench_testcode.sh", home_dir.clone()).await;
+        // command("/musl/busybox sh iperf_testcode.sh", home_dir.clone()).await;
+        // command("/musl/busybox sh multi.sh", home_dir.clone()).await;
+        // command("/musl/busybox sh iozone_testcode.sh", home_dir.clone()).await;
+        
     }
 
     #[cfg(target_arch = "loongarch64")]
