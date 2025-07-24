@@ -566,13 +566,13 @@ pub async fn initproc() {
         
 
         command(
-            "/glibc/busybox echo #### OS COMP TEST GROUP START splice-glibc ####",
+            "/glibc/busybox echo #### OS COMP TEST GROUP START splice-test-glibc ####",
             glibc_home_dir.clone(),
         )
         .await;
         command("/glibc/busybox sh /glibc/splice_testcode.sh", glibc_home_dir.clone()).await;
         command(
-            "/glibc/busybox echo #### OS COMP TEST GROUP END splice-glibc ####",
+            "/glibc/busybox echo #### OS COMP TEST GROUP END splice-test-glibc ####",
             glibc_home_dir.clone(),
         )
         .await;
@@ -581,13 +581,13 @@ pub async fn initproc() {
         let home_dir = PathBuf::from("/musl");
 
         command(
-            "/musl/busybox echo #### OS COMP TEST GROUP START splice-musl ####",
+            "/musl/busybox echo #### OS COMP TEST GROUP START splice-test-musl ####",
             home_dir.clone(),
         )
         .await;
         command("/musl/busybox sh /musl/splice_testcode.sh", home_dir.clone()).await;
         command(
-            "/musl/busybox echo #### OS COMP TEST GROUP END splice-musl ####",
+            "/musl/busybox echo #### OS COMP TEST GROUP END splice-test-musl ####",
             home_dir.clone(),
         )
         .await;
@@ -836,13 +836,13 @@ pub async fn initproc() {
 
 
         command(
-            "/musl/busybox echo #### OS COMP TEST GROUP START splice-musl ####",
+            "/musl/busybox echo #### OS COMP TEST GROUP START splice-test-musl ####",
             home_dir.clone(),
         )
         .await;
         command("/musl/busybox sh /musl/splice_testcode.sh", home_dir.clone()).await;
         command(
-            "/musl/busybox echo #### OS COMP TEST GROUP END splice-musl ####",
+            "/musl/busybox echo #### OS COMP TEST GROUP END splice-test-musl ####",
             home_dir.clone(),
         )
         .await;
@@ -1153,13 +1153,13 @@ pub async fn initproc() {
 
 
         command(
-            "/glibc/busybox echo #### OS COMP TEST GROUP START splice-glibc ####",
+            "/glibc/busybox echo #### OS COMP TEST GROUP START splice-test-glibc ####",
             glibc_home_dir.clone().clone(),
         )
         .await;
         command("/glibc/busybox sh /glibc/splice_testcode.sh", glibc_home_dir.clone()).await;
         command(
-            "/glibc/busybox echo #### OS COMP TEST GROUP END splice-glibc ####",
+            "/glibc/busybox echo #### OS COMP TEST GROUP END splice-test-glibc ####",
             glibc_home_dir.clone().clone(),
         )
         .await;
