@@ -1,6 +1,7 @@
 use fs::pathbuf::PathBuf;
 use super::types::fd::IoVec;
 use super::types::poll::{EpollEvent, EpollFile};
+use super::types::splice::SpliceFlags;
 use super::SysResult;
 use crate::syscall::types::fd::{FcntlCmd, KStat, AT_CWD, Statx, StatxTimestamp, STATX_ALL}; // 修复：统一导入并添加statx相关类型
 use crate::user::UserTaskContainer;
@@ -1556,5 +1557,125 @@ impl UserTaskContainer {
         
         warn!("TRUNCATE_DEBUG: Successfully truncated file {} to {} bytes", pathname, length);
         Ok(0)
+    }
+
+    /// Splice data between two file descriptors
+    pub async fn sys_splice(
+        &self,
+        fd_in: usize,
+        off_in: UserRef<usize>,
+        fd_out: usize,
+        off_out: UserRef<usize>,
+        len: usize,
+        flags: u32,
+    ) -> SysResult {
+        debug!(
+            "sys_splice @ fd_in: {}, off_in: {}, fd_out: {}, off_out: {}, len: {}, flags: {:#x}",
+            fd_in, off_in, fd_out, off_out, len, flags
+        );
+
+        let splice_flags = SpliceFlags::from_bits_truncate(flags);
+        debug!("sys_splice @ parsed flags: {:?}", splice_flags);
+
+        // Get input and output file descriptors
+        let in_file = self.task.get_fd(fd_in).ok_or(Errno::EBADF)?;
+        let out_file = self.task.get_fd(fd_out).ok_or(Errno::EBADF)?;
+
+        // Check if one of the file descriptors refers to a pipe
+        let in_is_pipe = {
+            let mut stat = Stat::default();
+            in_file.stat(&mut stat).unwrap_or_default();
+            stat.mode == StatMode::FIFO
+        };
+        let out_is_pipe = {
+            let mut stat = Stat::default();
+            out_file.stat(&mut stat).unwrap_or_default();
+            stat.mode == StatMode::FIFO
+        };
+
+        if !in_is_pipe && !out_is_pipe {
+            debug!("sys_splice: neither fd refers to a pipe");
+            return Err(Errno::EINVAL);
+        }
+
+        // Validate offset parameters
+        if in_is_pipe && off_in.is_valid() {
+            debug!("sys_splice: offset given for input pipe");
+            return Err(Errno::ESPIPE);
+        }
+
+        if out_is_pipe && off_out.is_valid() {
+            debug!("sys_splice: offset given for output pipe");
+            return Err(Errno::ESPIPE);
+        }
+
+        // Check if both fds refer to the same pipe
+        if fd_in == fd_out {
+            debug!("sys_splice: input and output refer to same pipe");
+            return Err(Errno::EINVAL);
+        }
+
+        // Limit the transfer size to avoid excessive memory usage
+        let transfer_len = cmp::min(len, 64 * 1024); // 64KB max per call
+        let mut buffer = vec![0u8; transfer_len];
+
+        // Read from input file descriptor
+        let bytes_read = if in_is_pipe {
+            // Read from pipe (no offset)
+            if splice_flags.contains(SpliceFlags::SPLICE_F_NONBLOCK) {
+                match in_file.read(&mut buffer) {
+                    Ok(n) => n,
+                    Err(Errno::EWOULDBLOCK) => return Err(Errno::EAGAIN),
+                    Err(e) => return Err(e),
+                }
+            } else {
+                in_file.async_read(&mut buffer).await?
+            }
+        } else {
+            // Read from regular file
+            if off_in.is_valid() {
+                let offset = *off_in.get_ref();
+                let bytes_read = in_file.readat(offset, &mut buffer)?;
+                *off_in.get_mut() += bytes_read;
+                bytes_read
+            } else {
+                in_file.read(&mut buffer)?
+            }
+        };
+
+        if bytes_read == 0 {
+            debug!("sys_splice: no data read from input");
+            return Ok(0);
+        }
+
+        // Adjust buffer size to actual bytes read
+        buffer.truncate(bytes_read);
+
+        // Write to output file descriptor
+        let bytes_written = if out_is_pipe {
+            // Write to pipe (no offset)
+            if splice_flags.contains(SpliceFlags::SPLICE_F_NONBLOCK) {
+                match out_file.write(&buffer) {
+                    Ok(n) => n,
+                    Err(Errno::EWOULDBLOCK) => return Err(Errno::EAGAIN),
+                    Err(e) => return Err(e),
+                }
+            } else {
+                out_file.async_write(&buffer).await?
+            }
+        } else {
+            // Write to regular file
+            if off_out.is_valid() {
+                let offset = *off_out.get_ref();
+                let bytes_written = out_file.writeat(offset, &buffer)?;
+                *off_out.get_mut() += bytes_written;
+                bytes_written
+            } else {
+                out_file.write(&buffer)?
+            }
+        };
+
+        debug!("sys_splice: transferred {} bytes", bytes_written);
+        Ok(bytes_written)
     }
 }

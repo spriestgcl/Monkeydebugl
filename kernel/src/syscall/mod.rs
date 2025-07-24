@@ -249,6 +249,17 @@ impl UserTaskContainer {
                 self.sys_sendfile(args[0] as _, args[1] as _, args[2] as _, args[3] as _)
                     .await
             }
+            Sysno::splice => {
+                self.sys_splice(
+                    args[0] as _,
+                    args[1].into(),
+                    args[2] as _,
+                    args[3].into(),
+                    args[4] as _,
+                    args[5] as _,
+                )
+                .await
+            }
             Sysno::tkill => self.sys_tkill(args[0] as _, args[1] as _).await,
             Sysno::rt_sigreturn => self.sys_sigreturn().await,
             Sysno::get_robust_list => {
