@@ -1,0 +1,127 @@
+SHELL := /bin/bash
+export ROOT_MANIFEST_DIR := $(shell pwd)
+RELEASE := release
+DEBUG := debug
+LOG ?= debug
+# RISC-V 配置
+RISCV_TARGET := riscv64gc-unknown-none-elf
+RISCV_ARCH := riscv64
+RISCV_KERNEL_ELF := target/$(RISCV_TARGET)/$(RELEASE)/kernel
+RISCV_KERNEL_ELF_DEBUG := target/$(RISCV_TARGET)/$(DEBUG)/kernel
+RISCV_KERNEL_OUT := kernel-rv
+RISCV_KERNEL_OUT_DEBUG := kernel-rv-debug
+RISCV_FEATURES :=   # 根据需要调整，例如启用 virtio 驱动
+
+# LoongArch 配置
+LOONGARCH_TARGET := loongarch64-unknown-none
+LOONGARCH_ARCH := loongarch64
+LOONGARCH_KERNEL_ELF := target/$(LOONGARCH_TARGET)/$(RELEASE)/kernel
+LOONGARCH_KERNEL_ELF_DEBUG := target/$(LOONGARCH_TARGET)/$(DEBUG)/kernel
+LOONGARCH_KERNEL_OUT := kernel-la
+LOONGARCH_KERNEL_OUT_DEBUG := kernel-la-debug
+LOONGARCH_FEATURES :=   # 根据需要调整
+
+.PHONY: all build-riscv build-loongarch clean
+
+all: build-riscv build-loongarch
+
+build-riscv:
+	@echo "Building RISC-V kernel..."
+	@if [ -d dotcargo ]; then mv dotcargo .cargo; fi
+	@BOARD=qemu LOG=$(LOG) RUSTFLAGS="-C debuginfo=2 -Clink-arg=-no-pie --cfg=driver=\"kvirtio\" --cfg=board=\"qemu\" --cfg=root_fs=\"ext4\"" \
+	cargo build --target $(RISCV_TARGET) --features "$(RISCV_FEATURES)" --offline || exit 1
+	@BOARD=qemu LOG=$(LOG) RUSTFLAGS="-Clink-arg=-no-pie --cfg=driver=\"kvirtio\" --cfg=board=\"qemu\" --cfg=root_fs=\"ext4\"" \
+	cargo build --target $(RISCV_TARGET) --features "$(RISCV_FEATURES)" --release --offline || exit 1
+	@cp $(RISCV_KERNEL_ELF_DEBUG) $(RISCV_KERNEL_OUT_DEBUG) || exit 1
+	@riscv64-unknown-elf-objcopy -O binary $(RISCV_KERNEL_ELF) $(RISCV_KERNEL_OUT)
+	@if [ -d .cargo ]; then mv .cargo dotcargo; fi
+
+build-loongarch:
+	@echo "Building LoongArch kernel..."
+	@if [ -d dotcargo ]; then mv dotcargo .cargo; fi
+	@BOARD=qemu LOG=$(LOG) RUSTFLAGS="-C debuginfo=2 -Clink-arg=-no-pie --cfg=driver=\"kvirtio\" --cfg=board=\"qemu\" --cfg=root_fs=\"ext4\"" \
+	cargo build --target $(LOONGARCH_TARGET) --features "$(LOONGARCH_FEATURES)" --offline || exit 1
+	@BOARD=qemu LOG=$(LOG) RUSTFLAGS="-Clink-arg=-no-pie --cfg=driver=\"kvirtio\" --cfg=board=\"qemu\" --cfg=root_fs=\"ext4\"" \
+	cargo build --target $(LOONGARCH_TARGET) --features "$(LOONGARCH_FEATURES)" --release --offline || exit 1
+	@cp $(LOONGARCH_KERNEL_ELF_DEBUG) $(LOONGARCH_KERNEL_OUT_DEBUG) || exit 1
+	@cp $(LOONGARCH_KERNEL_ELF) $(LOONGARCH_KERNEL_OUT) || exit 1
+	@if [ -d .cargo ]; then mv .cargo dotcargo; fi
+
+debug-riscv-qemu:
+	@echo "Starting QEMU with RISC-V kernel..."
+	@qemu-system-riscv64 -machine virt -kernel kernel-rv -m 1G -nographic -smp 1 -bios default -drive file=sdcard-rv.img,if=none,format=raw,id=x0 -device virtio-blk-device,drive=x0,bus=virtio-mmio-bus.0 -no-reboot -device virtio-net-device,netdev=net -netdev user,id=net -rtc base=utc -s -S
+
+debug-riscv-gdb:
+	@echo "Launching GDB with corrected symbol loading..."
+	@/opt/riscv/riscv/bin/riscv64-unknown-elf-gdb \
+		-ex "set confirm off" \
+		-ex "target remote localhost:1234" \
+		-ex "add-symbol-file kernel-rv-debug " \
+		-ex "set confirm on" \
+
+debug-loongarch-qemu:
+	@qemu-system-loongarch64 -kernel kernel-la -m 1G -nographic -smp 1 -drive file=sdcard-la.img,if=none,format=raw,id=x0 -device virtio-blk-pci,drive=x0 -no-reboot -device virtio-net-pci,netdev=net0 -netdev user,id=net0 -rtc base=utc -s -S
+
+debug-loongarch-gdb:
+	/opt/gdb-loongarch64/bin/loongarch64-linux-gnu-gdb --symbol=kernel-la-debug -exec=kernel-la -ex "target remote localhost:1234"
+
+loongarch-kill:
+	@echo "Killing qemu-system-loongarch64 processes..."
+	@ps -au | grep qemu-system-loongarch64 | grep -v grep | awk '{print $$2}' > /tmp/pids.txt
+	@xargs -r kill -9 < /tmp/pids.txt
+	@rm -rf /tmp/pids.txt
+
+riscv-kill:
+	@echo "Killing qemu-system-riscv64 processes..."
+	@ps -au | grep qemu-system-riscv64 | grep -v grep | awk '{print $$2}' > /tmp/pids.txt
+	@xargs -r kill -9 < /tmp/pids.txt
+	@rm -rf /tmp/pids.txt
+
+build-gdb-loongarch:
+	@echo "Installing dependencies for building GDB..."
+	@sudo apt update && \
+		sudo apt install -y build-essential wget tar texinfo python3 libgmp-dev libmpfr-dev libmpc-dev libisl-dev
+
+	@echo "Checking if LoongArch GDB is already built..."
+	@if [ -f /opt/gdb-loongarch64/bin/loongarch64-linux-gnu-gdb ]; then \
+		echo "LoongArch64 GDB already exists."; \
+	else \
+		echo "Downloading GDB 14.1 source tarball..."; \
+		mkdir -p build-tools && cd build-tools && \
+		if [ ! -f gdb-14.1.tar.xz ]; then \
+			wget https://mirrors.aliyun.com/gnu/gdb/gdb-14.1.tar.xz; \
+		fi; \
+		if [ ! -d gdb-14.1 ]; then \
+			tar -xf gdb-14.1.tar.xz; \
+		fi; \
+		mkdir -p gdb-build && cd gdb-build && \
+		../gdb-14.1/configure --target=loongarch64-linux-gnu --prefix=/opt/gdb-loongarch64 --disable-werror && \
+		make -j$$(nproc) && sudo make install && \
+		echo "GDB installed to /opt/gdb-loongarch64/bin/loongarch64-linux-gnu-gdb"; \
+	fi
+
+# build-gdb-riscv64:
+# 	@echo "Installing dependencies for building GDB for RISC-V..."
+# 	@sudo apt update && \
+# 		sudo apt install -y build-essential wget tar texinfo python3 libgmp-dev libmpfr-dev libmpc-dev libisl-dev
+
+# 	@echo "Checking if RISC-V GDB is already built..."
+# 	@if [ -f /opt/gdb-riscv64/bin/riscv64-linux-gnu-gdb ]; then \
+# 		echo "RISC-V Linux GDB already exists."; \
+# 	else \
+# 		echo "Downloading and building GDB 14.1 for RISC-V..."; \
+# 		mkdir -p build-tools && cd build-tools && \
+# 		if [ ! -f gdb-14.1.tar.xz ]; then \
+# 			wget https://mirrors.aliyun.com/gnu/gdb/gdb-14.1.tar.xz; \
+# 		fi; \
+# 		if [ ! -d gdb-14.1 ]; then \
+# 			tar -xf gdb-14.1.tar.xz; \
+# 		fi; \
+# 		mkdir -p gdb-build-riscv && cd gdb-build-riscv && \
+# 		../gdb-14.1/configure --target=riscv64-linux-gnu --prefix=/opt/gdb-riscv64 --disable-werror && \
+# 		make -j$$(nproc) && sudo make install && \
+# 		echo "GDB installed to /opt/gdb-riscv64/bin/riscv64-linux-gnu-gdb"; \
+# 	fi
+
+clean:
+	@rm -rf target/ kernel-rv kernel-rv-debug kernel-la kernel-la-debug
