@@ -1121,9 +1121,14 @@ impl UserTaskContainer {
         }
 
         if off_out.is_valid() {
-            *off_out.get_mut() += out_file.writeat(*off_out.get_ref(), &mut buffer[..rsize])?;
+            let written = out_file.writeat(*off_out.get_ref(), &buffer[..rsize])?;
+            debug!("sys_copy_file_range: writeat at offset {}, wrote {} bytes", *off_out.get_ref(), written);
+            *off_out.get_mut() += written;
         } else {
-            out_file.write(&buffer[..rsize])?;
+            let current_offset = out_file.seek(vfscore::SeekFrom::CURRENT(0))?;
+            let written = out_file.write(&buffer[..rsize])?;
+            let new_offset = out_file.seek(vfscore::SeekFrom::CURRENT(0))?;
+            debug!("sys_copy_file_range: write at offset {}, wrote {} bytes, new offset {}", current_offset, written, new_offset);
         }
 
         Ok(rsize)

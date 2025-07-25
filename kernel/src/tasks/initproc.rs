@@ -480,21 +480,21 @@ pub async fn initproc() {
 
         set_libc_path("/glibc/lib".to_string());
         set_dyn_path("/glibc/lib/ld-linux-riscv64-lp64d.so.1".to_string());
-        let glibc_home_dir = PathBuf::from("/glibc");
-        // 为glibc环境创建链接
-        command("/glibc/busybox mkdir -p /bin", glibc_home_dir.clone()).await;
-        command(
-            "/glibc/busybox cp /glibc/busybox /sleep",
-            glibc_home_dir.clone(),
-        )
-        .await;
-        command(
-            "/glibc/busybox cp /glibc/busybox /bin/sleep",
-            glibc_home_dir.clone(),
-        )
-        .await;
-        command("/glibc/busybox chmod +x /sleep", glibc_home_dir.clone()).await;
-        command("/glibc/busybox chmod +x /bin/sleep", glibc_home_dir.clone()).await;
+        // let glibc_home_dir = PathBuf::from("/glibc");
+        // // 为glibc环境创建链接
+        // command("/glibc/busybox mkdir -p /bin", glibc_home_dir.clone()).await;
+        // command(
+        //     "/glibc/busybox cp /glibc/busybox /sleep",
+        //     glibc_home_dir.clone(),
+        // )
+        // .await;
+        // command(
+        //     "/glibc/busybox cp /glibc/busybox /bin/sleep",
+        //     glibc_home_dir.clone(),
+        // )
+        // .await;
+        // command("/glibc/busybox chmod +x /sleep", glibc_home_dir.clone()).await;
+        // command("/glibc/busybox chmod +x /bin/sleep", glibc_home_dir.clone()).await;
         //command("/musl/busybox sh", glibc_home_dir.clone()).await;
         // command(
         //     "/glibc/busybox sh /glibc/iozone_testcode.sh",
@@ -520,18 +520,18 @@ pub async fn initproc() {
         let glibc_home_dir = PathBuf::from("/glibc");
         // 确保glibc目录也有正确的链接
         command("/glibc/busybox mkdir -p /bin", glibc_home_dir.clone()).await;
-        command(
-            "/glibc/busybox cp /glibc/busybox /sleep",
-            glibc_home_dir.clone(),
-        )
-        .await;
-        command(
-            "/glibc/busybox cp /glibc/busybox /bin/sleep",
-            glibc_home_dir.clone(),
-        )
-        .await;
-        command("/glibc/busybox chmod +x /sleep", glibc_home_dir.clone()).await;
-        command("/glibc/busybox chmod +x /bin/sleep", glibc_home_dir.clone()).await;
+        // command(
+        //     "/glibc/busybox cp /glibc/busybox /sleep",
+        //     glibc_home_dir.clone(),
+        // )
+        // .await;
+        // command(
+        //     "/glibc/busybox cp /glibc/busybox /bin/sleep",
+        //     glibc_home_dir.clone(),
+        // )
+        // .await;
+        // command("/glibc/busybox chmod +x /sleep", glibc_home_dir.clone()).await;
+        // command("/glibc/busybox chmod +x /bin/sleep", glibc_home_dir.clone()).await;
 
         //command("/musl/busybox sh ", glibc_home_dir.clone()).await;
 
@@ -564,33 +564,35 @@ pub async fn initproc() {
         //command("/glibc/busybox sh ltp_testcode.sh", glibc_home_dir.clone()).await;
         // run_ltp_tests_glibc(glibc_home_dir.clone()).await;
         
+        command("/glibc/busybox sh /glibc/copy-file-range_testcode.sh", glibc_home_dir.clone()).await;
 
-        command(
-            "/glibc/busybox echo #### OS COMP TEST GROUP START splice-test-glibc ####",
-            glibc_home_dir.clone(),
-        )
-        .await;
-        command("/glibc/busybox sh /glibc/splice_testcode.sh", glibc_home_dir.clone()).await;
-        command(
-            "/glibc/busybox echo #### OS COMP TEST GROUP END splice-test-glibc ####",
-            glibc_home_dir.clone(),
-        )
-        .await;
+        // command(
+        //     "/glibc/busybox echo #### OS COMP TEST GROUP START splice-test-glibc ####",
+        //     glibc_home_dir.clone(),
+        // )
+        // .await;
+        // command("/glibc/busybox sh /glibc/splice_testcode.sh", glibc_home_dir.clone()).await;
+        // command(
+        //     "/glibc/busybox echo #### OS COMP TEST GROUP END splice-test-glibc ####",
+        //     glibc_home_dir.clone(),
+        // )
+        // .await;
 
 
         let home_dir = PathBuf::from("/musl");
+        // command("/musl/busybox sh /musl/copy-file-range_testcode.sh", home_dir.clone()).await;
 
-        command(
-            "/musl/busybox echo #### OS COMP TEST GROUP START splice-test-musl ####",
-            home_dir.clone(),
-        )
-        .await;
-        command("/musl/busybox sh /musl/splice_testcode.sh", home_dir.clone()).await;
-        command(
-            "/musl/busybox echo #### OS COMP TEST GROUP END splice-test-musl ####",
-            home_dir.clone(),
-        )
-        .await;
+        // command(
+        //     "/musl/busybox echo #### OS COMP TEST GROUP START splice-test-musl ####",
+        //     home_dir.clone(),
+        // )
+        // .await;
+        // command("/musl/busybox sh /musl/splice_testcode.sh", home_dir.clone()).await;
+        // command(
+        //     "/musl/busybox echo #### OS COMP TEST GROUP END splice-test-musl ####",
+        //     home_dir.clone(),
+        // )
+        // .await;
 
         // command(
         //     "/glibc/busybox echo #### OS COMP TEST GROUP END ltp-glibc ####",

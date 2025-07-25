@@ -247,7 +247,24 @@ impl INodeInterface for Ext4FileWrapper {
         let path = file.get_path();
         let path = path.to_str().unwrap();
         file.file_open(path, O_RDWR).map_err(map_ext4_err)?;
-        file.file_seek(offset as _, 0).map_err(map_ext4_err)?;
+
+        // Get current file size
+        let current_size = file.file_size();
+
+        // If writing beyond current file size, we need to extend the file
+        if offset > current_size as usize {
+            // First, seek to the end of the file
+            file.file_seek(current_size as i64, 0).map_err(map_ext4_err)?;
+
+            // Write zeros to fill the gap
+            let gap_size = offset - current_size as usize;
+            let zero_buffer = vec![0u8; gap_size];
+            file.file_write(&zero_buffer).map_err(map_ext4_err)?;
+        } else {
+            // Normal seek within file bounds
+            file.file_seek(offset as _, 0).map_err(map_ext4_err)?;
+        }
+
         let wsize = file.file_write(buffer).map_err(map_ext4_err)?;
         let _ = file.file_close();
         Ok(wsize)
