@@ -170,12 +170,12 @@ impl Ext4File {
     }
 
     pub fn file_seek(&mut self, offset: i64, seek_type: u32) -> Result<usize, i32> {
+        let mut offset = offset;
         let size = self.file_size() as i64;
 
         if offset > size {
             warn!("Seek beyond the end of the file");
-            // Don't clamp the offset - allow seeking beyond EOF
-            // The file will be extended when writing occurs
+            offset = size;
         }
 
         let r = unsafe { ext4_fseek(&mut self.file_desc, offset, seek_type) };
