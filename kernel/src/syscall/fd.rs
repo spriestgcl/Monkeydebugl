@@ -1614,6 +1614,24 @@ impl UserTaskContainer {
             return Err(Errno::ESPIPE);
         }
 
+        // Check for negative offsets (which appear as very large usize values)
+        if off_in.is_valid() {
+            let offset = *off_in.get_ref();
+            if offset > (isize::MAX as usize) {
+                debug!("sys_splice: negative input offset detected: {}", offset as isize);
+                return Err(Errno::EINVAL);
+            }
+        }
+
+        if off_out.is_valid() {
+            let offset = *off_out.get_ref();
+            if offset > (isize::MAX as usize) {
+                debug!("sys_splice: negative output offset detected: {}", offset as isize);
+                return Err(Errno::EINVAL);
+            }
+        }
+
+        
         // Check if both fds refer to the same pipe
         if fd_in == fd_out {
             debug!("sys_splice: input and output refer to same pipe");

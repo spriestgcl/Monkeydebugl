@@ -571,7 +571,7 @@ pub async fn initproc() {
         //     glibc_home_dir.clone(),
         // )
         // .await;
-        // command("/glibc/busybox sh /glibc/splice_testcode.sh", glibc_home_dir.clone()).await;
+        command("/glibc/busybox sh /glibc/splice_testcode.sh", glibc_home_dir.clone()).await;
         // command(
         //     "/glibc/busybox echo #### OS COMP TEST GROUP END splice-test-glibc ####",
         //     glibc_home_dir.clone(),
@@ -580,14 +580,14 @@ pub async fn initproc() {
 
 
         let home_dir = PathBuf::from("/musl");
-        // command("/musl/busybox sh /musl/copy-file-range_testcode.sh", home_dir.clone()).await;
+        command("/musl/busybox sh /musl/copy-file-range_testcode.sh", home_dir.clone()).await;
 
         // command(
         //     "/musl/busybox echo #### OS COMP TEST GROUP START splice-test-musl ####",
         //     home_dir.clone(),
         // )
         // .await;
-        // command("/musl/busybox sh /musl/splice_testcode.sh", home_dir.clone()).await;
+        command("/musl/busybox sh /musl/splice_testcode.sh", home_dir.clone()).await;
         // command(
         //     "/musl/busybox echo #### OS COMP TEST GROUP END splice-test-musl ####",
         //     home_dir.clone(),
@@ -836,18 +836,18 @@ pub async fn initproc() {
         command("/musl/busybox chmod +x /bin/chmod", home_dir.clone()).await;
 
 
-
-        command(
-            "/musl/busybox echo #### OS COMP TEST GROUP START splice-test-musl ####",
-            home_dir.clone(),
-        )
-        .await;
+        command("/musl/busybox sh /musl/copy-file-range_testcode.sh", home_dir.clone()).await;
+        // command(
+        //     "/musl/busybox echo #### OS COMP TEST GROUP START splice-test-musl ####",
+        //     home_dir.clone(),
+        // )
+        // .await;
         command("/musl/busybox sh /musl/splice_testcode.sh", home_dir.clone()).await;
-        command(
-            "/musl/busybox echo #### OS COMP TEST GROUP END splice-test-musl ####",
-            home_dir.clone(),
-        )
-        .await;
+        // command(
+        //     "/musl/busybox echo #### OS COMP TEST GROUP END splice-test-musl ####",
+        //     home_dir.clone(),
+        // )
+        // .await;
         //let home_dir = PathBuf::from("/musl");
         // let home_dir = PathBuf::from("/musl");
 
@@ -1153,18 +1153,19 @@ pub async fn initproc() {
         // .await;
         // command("/glibc/busybox sh lua_testcode.sh", glibc_home_dir.clone()).await;
 
+        command("/glibc/busybox sh /glibc/copy-file-range_testcode.sh", glibc_home_dir.clone()).await;
 
-        command(
-            "/glibc/busybox echo #### OS COMP TEST GROUP START splice-test-glibc ####",
-            glibc_home_dir.clone().clone(),
-        )
-        .await;
+        // command(
+        //     "/glibc/busybox echo #### OS COMP TEST GROUP START splice-test-glibc ####",
+        //     glibc_home_dir.clone().clone(),
+        // )
+        // .await;
         command("/glibc/busybox sh /glibc/splice_testcode.sh", glibc_home_dir.clone()).await;
-        command(
-            "/glibc/busybox echo #### OS COMP TEST GROUP END splice-test-glibc ####",
-            glibc_home_dir.clone().clone(),
-        )
-        .await;
+        // command(
+        //     "/glibc/busybox echo #### OS COMP TEST GROUP END splice-test-glibc ####",
+        //     glibc_home_dir.clone().clone(),
+        // )
+        // .await;
 
 
         // command(
