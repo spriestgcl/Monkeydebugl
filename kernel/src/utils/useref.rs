@@ -3,7 +3,8 @@ use core::{
     marker::PhantomData,
 };
 
-use polyhal::VirtAddr;
+use polyhal::{VirtAddr, PageTable};
+use executor::current_task;
 
 #[derive(Clone, Copy)]
 pub struct UserRef<T> {
@@ -50,8 +51,64 @@ impl<T> UserRef<T> {
         self.addr.get_mut_ref::<T>()
     }
 
-    #[inline]
     pub fn slice_mut_with_len(&self, len: usize) -> &'static mut [T] {
+        if len == 0 {
+            return &mut [];
+        }
+
+        let start_addr = self.addr.raw();
+        let element_size = core::mem::size_of::<T>();
+        let total_bytes = len * element_size;
+        let end_addr = start_addr + total_bytes;
+
+        // Check if the buffer spans multiple pages
+        let start_page = start_addr / PageTable::PAGE_SIZE;
+        let end_page = (end_addr - 1) / PageTable::PAGE_SIZE;
+
+        // If accessing multiple pages, we need to ensure all pages are mapped and contiguous
+        if start_page != end_page {
+            log::error!("Cross-page buffer access detected: start={:#x}, end={:#x}, pages={}-{}, len={}, element_size={}",
+                       start_addr, end_addr, start_page, end_page, len, element_size);
+
+            // Get current task to access its page table
+            let task = current_task();
+            if let Ok(user_task) = task.downcast_arc::<crate::tasks::UserTask>() {
+                // Check each page in the range to ensure it's mapped and get physical addresses
+                let mut prev_phys_end = None;
+
+                for page_num in start_page..=end_page {
+                    let page_addr = VirtAddr::new(page_num * PageTable::PAGE_SIZE);
+
+                    // Check if this page is mapped
+                    if let Some((phys_addr, _flags)) = user_task.page_table.translate(page_addr) {
+                        log::error!("Page at {:#x} is mapped to physical {:#x}", page_addr.raw(), phys_addr.raw());
+
+                        // Check if pages are physically contiguous
+                        if let Some(expected_start) = prev_phys_end {
+                            if phys_addr.raw() != expected_start {
+                                log::error!("CRITICAL: Non-contiguous physical pages detected! Expected {:#x}, got {:#x}",
+                                           expected_start, phys_addr.raw());
+                                // Pages are not physically contiguous, cannot safely create a single slice
+                                return &mut [];
+                            }
+                        }
+                        prev_phys_end = Some(phys_addr.raw() + PageTable::PAGE_SIZE);
+                    } else {
+                        log::error!("CRITICAL: Unmapped page detected at {:#x} during cross-page access", page_addr.raw());
+                        // For unmapped pages, we cannot safely create a slice
+                        return &mut [];
+                    }
+                }
+
+                log::error!("All pages are mapped and physically contiguous, proceeding with slice creation");
+            } else {
+                log::error!("Failed to get current user task for page validation");
+                // Without task context, we cannot validate pages safely
+                return &mut [];
+            }
+        }
+
+        // All pages are mapped and contiguous (or single page), safe to create the slice
         self.addr.slice_mut_with_len(len)
     }
 

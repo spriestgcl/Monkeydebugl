@@ -165,6 +165,8 @@ impl UserTask {
         };
         
         // 改进的内存分配策略：严格保证连续性，避免分段分配破坏内存连续性
+        // 在loongarch架构下暂时禁用严格分配策略，避免兼容性问题
+        #[cfg(not(target_arch = "loongarch64"))]
         if count > 1 {
             // 记录分配请求的统计信息
             if count > 16 {
@@ -191,7 +193,8 @@ impl UserTask {
             }
 
             // 对于关键的内存类型（如Mmap用于堆），严格要求连续性
-            if mtype == MemType::Mmap {
+            // 但对于单页分配（如TLS），允许fallback到其他分配策略
+            if mtype == MemType::Mmap && count > 1 {
                 warn!("Failed to allocate {} continuous pages for heap (MemType::Mmap), refusing segmented allocation to maintain heap integrity", count);
                 return None; // 拒绝分段分配，保证堆的连续性
             }
@@ -443,17 +446,32 @@ impl UserTask {
             let start_vaddr = va!(curr_page * PAGE_SIZE);
 
             // 改进的sbrk：批量分配内存，严格要求连续性
-            if pages_needed > 1 {
-                // 对于多页分配，使用改进的frame_alloc，严格要求连续分配
-                if self.frame_alloc(start_vaddr, MemType::Mmap, pages_needed).is_none() {
-                    warn!("sbrk: Failed to allocate {} continuous pages for heap expansion", pages_needed);
-                    return curr_heap; // 分配失败，返回当前堆大小，不扩展堆
+            // 在loongarch架构下使用传统的逐页分配方式
+            #[cfg(target_arch = "loongarch64")]
+            {
+                // 逐页分配，避免连续分配问题
+                for i in curr_page..after_page {
+                    if self.frame_alloc(va!(i * PAGE_SIZE), MemType::Mmap, 1).is_none() {
+                        warn!("sbrk: Failed to allocate page {} for heap expansion", i);
+                        return curr_heap;
+                    }
                 }
-            } else {
-                // 单页分配
-                if self.frame_alloc(start_vaddr, MemType::Mmap, 1).is_none() {
-                    warn!("sbrk: Failed to allocate single page for heap expansion");
-                    return curr_heap;
+            }
+
+            #[cfg(not(target_arch = "loongarch64"))]
+            {
+                if pages_needed > 1 {
+                    // 对于多页分配，使用改进的frame_alloc，严格要求连续分配
+                    if self.frame_alloc(start_vaddr, MemType::Mmap, pages_needed).is_none() {
+                        warn!("sbrk: Failed to allocate {} continuous pages for heap expansion", pages_needed);
+                        return curr_heap; // 分配失败，返回当前堆大小，不扩展堆
+                    }
+                } else {
+                    // 单页分配
+                    if self.frame_alloc(start_vaddr, MemType::Mmap, 1).is_none() {
+                        warn!("sbrk: Failed to allocate single page for heap expansion");
+                        return curr_heap;
+                    }
                 }
             }
 

@@ -244,10 +244,15 @@ pub fn user_cow_int(task: Arc<UserTask>, cx_ref: &mut TrapFrame, vaddr: VirtAddr
             }
 
             // 使用 UserTask 的 frame_alloc 方法分配TLS页面
+            // 对于TLS页面，使用MemType::Shared以避免严格的连续分配限制
             let tls_page_count = 1;
-            if let Some(ppn) = task.frame_alloc(vaddr.floor(), MemType::Mmap, tls_page_count) {
+            debug!("Attempting TLS allocation for vaddr: {:#x}, task_id: {}", vaddr.raw(), task.task_id);
+
+            // 尝试使用旧的map_frames方法直接分配，绕过新的严格分配策略
+            if let Some(ppn) = task.map_frames(vaddr.floor(), MemType::Shared, tls_page_count, None, 0, vaddr.floor().raw(), tls_page_count * PAGE_SIZE, MappingFlags::URWX) {
                 // 清零页面内容
                 ppn.slice_mut_with_len(PAGE_SIZE).fill(0);
+                debug!("TLS allocation successful with direct map_frames for vaddr: {:#x}", vaddr.raw());
 
                 unsafe {
                     TLS_COUNT = 0; // 重置计数器
@@ -255,6 +260,34 @@ pub fn user_cow_int(task: Arc<UserTask>, cx_ref: &mut TrapFrame, vaddr: VirtAddr
                 return;
             }
 
+            warn!("TLS allocation with direct map_frames failed, trying frame_alloc with MemType::Shared for vaddr: {:#x}", vaddr.raw());
+
+            if let Some(ppn) = task.frame_alloc(vaddr.floor(), MemType::Shared, tls_page_count) {
+                // 清零页面内容
+                ppn.slice_mut_with_len(PAGE_SIZE).fill(0);
+                debug!("TLS allocation successful with MemType::Shared for vaddr: {:#x}", vaddr.raw());
+
+                unsafe {
+                    TLS_COUNT = 0; // 重置计数器
+                }
+                return;
+            }
+
+            warn!("TLS allocation with MemType::Shared failed, trying MemType::Stack for vaddr: {:#x}", vaddr.raw());
+
+            // 如果MemType::Shared也失败，尝试使用MemType::Stack作为fallback
+            if let Some(ppn) = task.frame_alloc(vaddr.floor(), MemType::Stack, tls_page_count) {
+                // 清零页面内容
+                ppn.slice_mut_with_len(PAGE_SIZE).fill(0);
+                debug!("TLS allocation successful with MemType::Stack for vaddr: {:#x}", vaddr.raw());
+
+                unsafe {
+                    TLS_COUNT = 0; // 重置计数器
+                }
+                return;
+            }
+
+            warn!("All TLS allocation strategies failed for vaddr: {:#x}, task_id: {}", vaddr.raw(), task.task_id);
             task.tcb.write().signal.add_signal(SignalFlags::SIGSEGV);
         }
         // 在现有的地址范围检查中添加新的条件
