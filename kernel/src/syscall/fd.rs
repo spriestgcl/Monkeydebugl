@@ -189,6 +189,10 @@ impl UserTaskContainer {
                 new_path,
                 OpenFlags::O_CREAT | OpenFlags::O_DIRECTORY | flags,
             )?;
+        } else if old_file_type == FileType::Device {
+            // 不允许对设备文件进行重命名操作
+            debug!("sys_renameat2 @ Device file rename not allowed: {}", old_path);
+            return Err(Errno::EPERM);
         } else {
             panic!("can't handle the file: {:?} now", old_file_type);
         }
