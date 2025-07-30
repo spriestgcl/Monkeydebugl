@@ -68,7 +68,7 @@ impl<T> UserRef<T> {
 
         // If accessing multiple pages, we need to ensure all pages are mapped and contiguous
         if start_page != end_page {
-            log::error!("Cross-page buffer access detected: start={:#x}, end={:#x}, pages={}-{}, len={}, element_size={}",
+            log::debug!("Cross-page buffer access detected: start={:#x}, end={:#x}, pages={}-{}, len={}, element_size={}",
                        start_addr, end_addr, start_page, end_page, len, element_size);
 
             // Get current task to access its page table
@@ -135,7 +135,7 @@ impl<T> UserRef<T> {
                     }
                 }
 
-                log::error!("All pages are mapped and physically contiguous, proceeding with slice creation");
+                log::debug!("All pages are mapped and physically contiguous, proceeding with slice creation");
             } else {
                 log::error!("Failed to get current user task for page validation");
                 // Without task context, we cannot validate pages safely
