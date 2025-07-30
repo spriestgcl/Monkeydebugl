@@ -44,11 +44,13 @@ impl UserTaskContainer {
     }
 
     pub async fn sys_read(&self, fd: usize, buf_ptr: UserRef<u8>, count: usize) -> SysResult {
-        debug!(
+        error!(
             "[task {}] sys_read @ fd: {} buf_ptr: {:?} count: {}",
             self.tid, fd as isize, buf_ptr, count
         );
+        error!{"start slice"}
         let buffer = buf_ptr.slice_mut_with_len(count);
+        error!{"finish slice"}
         self.task
             .get_fd(fd)
             .ok_or(Errno::EBADF)?

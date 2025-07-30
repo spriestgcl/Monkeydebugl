@@ -4,7 +4,7 @@ use crate::tasks::{MemArea, MemType};
 use crate::user::UserTaskContainer;
 use crate::utils::useref::UserRef;
 use devices::PAGE_SIZE;
-use log::debug;
+use log::{debug, warn};
 use polyhal::VirtAddr;
 use runtime::frame::alignup;
 use syscalls::Errno;
@@ -13,15 +13,16 @@ use syscalls::Errno;
 const MAP_AREA_START: usize = 0x2_0000_0000;
 
 impl UserTaskContainer {
-    pub async fn sys_brk(&self, addr: usize) -> SysResult {
-        debug!("sys_brk @ new: {:#x} old: {:#x}", addr, self.task.heap());
+    pub fn sys_brk(&self, addr: usize) -> SysResult {
+        let heap = self.task.pcb.lock().heap;
+        debug!("sys_brk @ new: {:#x} old: {:#x}", addr, heap);
         match addr {
-            0 => Ok(self.task.heap()),
+            0 => Ok(heap),
             _ => Ok(self.task.sbrk(addr)),
         }
     }
 
-    pub async fn sys_mmap(
+    pub fn sys_mmap(
         &self,
         start: usize,
         mut len: usize,
@@ -37,13 +38,7 @@ impl UserTaskContainer {
             "[task {}] sys_mmap @ start: {:#x}, len: {:#x}, prot: {:?}, flags: {:?}, fd: {}, offset: {}",
             self.tid, start, len, prot, flags, fd as isize, off
         );
-        
-        // 处理匿名映射：当fd为-1或MAP_ANONYMOUS标志设置时
-        let file = if fd == usize::MAX || flags.contains(MapFlags::MAP_ANONYMOUS) {
-            None
-        } else {
-            self.task.get_fd(fd)
-        };
+        let file = self.task.get_fd(fd);
 
         let addr = self.task.get_last_free_addr();
 
@@ -59,16 +54,6 @@ impl UserTaskContainer {
 
         if len == 0 {
             return Ok(addr.into());
-        }
-
-        // 检查地址是否在有效范围内（LoongArch用户空间限制）
-        #[cfg(target_arch = "loongarch64")]
-        {
-            const USER_VADDR_MAX: usize = 0x7F_FFFF_FFFF; // (1 << 39) - 1
-            if addr.raw() + len > USER_VADDR_MAX {
-                debug!("mmap address out of user space range: {:#x}", addr.raw());
-                return Err(Errno::ENOMEM);
-            }
         }
 
         if flags.contains(MapFlags::MAP_FIXED) {
@@ -95,12 +80,11 @@ impl UserTaskContainer {
             return Err(Errno::EINVAL);
         }
 
-        // 处理共享映射
         if flags.contains(MapFlags::MAP_SHARED) {
             match &file {
-                Some(file) => {
-                    // 文件共享映射
-                    if let Some(_paddr) = self.task.map_frames(
+                Some(file) => self
+                    .task
+                    .map_frames(
                         addr,
                         MemType::ShareFile,
                         (len + PAGE_SIZE - 1) / PAGE_SIZE,
@@ -109,68 +93,38 @@ impl UserTaskContainer {
                         usize::from(addr),
                         len,
                         prot.into(),
-                    ) {
-                        // 映射成功
-                    } else {
-                        debug!("Failed to map shared file");
-                        return Err(Errno::EFAULT);
-                    }
-                },
+                    )
+                    .ok_or(Errno::EFAULT)?,
                 None => {
-                    // 匿名共享映射
                     let paddr = self
                         .task
                         .frame_alloc(addr, MemType::Shared, len.div_ceil(PAGE_SIZE))
                         .ok_or(Errno::EFAULT)?;
 
                     for i in 0..(len + PAGE_SIZE - 1) / PAGE_SIZE {
-                        self.task
-                            .map(paddr + i * PAGE_SIZE, addr + i * PAGE_SIZE, prot.into());
+                        self.task.map(
+                            paddr + i * PAGE_SIZE,
+                            addr + i * PAGE_SIZE,
+                            prot.into(),
+                        );
                     }
+                    paddr
                 }
             };
         } else {
-            // 私有映射
-            if file.is_some() {
-                // 文件私有映射
-                self.task
-                    .frame_alloc(addr, MemType::Mmap, len.div_ceil(PAGE_SIZE))
-                    .ok_or(Errno::EFAULT)?;
-            } else {
-                // 匿名私有映射
-                self.task.pcb.lock().memset.push(MemArea {
-                    mtype: MemType::Mmap,
-                    mtrackers: vec![],
-                    file: None,
-                    offset: 0,
-                    start: addr.raw(),
-                    len,
-                });
-            }
+            self.task
+                .frame_alloc(addr, MemType::Mmap, len.div_ceil(PAGE_SIZE))
+                .ok_or(Errno::EFAULT)?;
         };
 
-        // 从文件读取数据（如果有文件）
         if let Some(file) = file {
-            // 创建缓冲区前先验证地址是否已映射
-            if let Err(e) = (|| -> Result<(), Errno> {
-                let buffer = UserRef::<u8>::from(addr).slice_mut_with_len(len);
-                file.readat(off, buffer).map(|_| ())
-            })() {
-                debug!("Failed to read file data: {:?}", e);
-                // 清理已分配的内存
-                self.task.pcb.lock().memset.sub_area(
-                    addr.raw(),
-                    addr.raw() + len,
-                    &self.task.page_table,
-                );
-                return Err(e);
-            }
+            let buffer = UserRef::<u8>::from(addr).slice_mut_with_len(len);
+            file.readat(off, buffer)?;
         }
-        
         Ok(addr.into())
     }
 
-    pub async fn sys_munmap(&self, start: usize, len: usize) -> SysResult {
+    pub fn sys_munmap(&self, start: usize, len: usize) -> SysResult {
         debug!("sys_munmap @ start: {:#x}, len: {:#x}", start, len);
         self.task.inner_map(|pcb| {
             pcb.memset

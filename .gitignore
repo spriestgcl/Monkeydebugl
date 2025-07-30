@@ -24,3 +24,7 @@ Dockerfile
 sdcard-la-debug.img
 sdcard-rv-debug.img
 test.c.tmp
+sdcard-rv-2.img
+sdcard-rv-3.img
+sdcard-la-3.img
+sdcard-la-2.img

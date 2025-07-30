@@ -15,6 +15,7 @@ use polyhal_trap::trapframe::{TrapFrame, TrapFrameArgs};
 use runtime::frame::frame_alloc;
 use runtime::frame::get_free_pages;
 use syscalls::Sysno;
+use alloc::vec::Vec;
 pub mod entry;
 pub mod signal;
 pub mod socket_pair;
@@ -495,5 +496,113 @@ pub fn task_ilegal(task: &Arc<UserTask>, vaddr: VirtAddr, cx_ref: &mut TrapFrame
                 vaddr.raw(),
             );
         }
+    }
+}
+
+/// Batch allocate pages for a memory area to handle cross-page access
+/// This function is called when UserRef detects unmapped pages during cross-page buffer access
+pub fn batch_allocate_pages_for_area(
+    task: Arc<UserTask>,
+    area_index: usize,
+    unmapped_pages: &[VirtAddr]
+) -> bool {
+    if unmapped_pages.is_empty() {
+        return true;
+    }
+
+    debug!("Batch allocating {} pages for cross-page access", unmapped_pages.len());
+
+    // Check memory availability before batch allocation
+    let required_pages = unmapped_pages.len();
+    if get_free_pages() < required_pages + 10 {
+        warn!("Insufficient memory for batch allocation: need {}, available {}",
+              required_pages, get_free_pages());
+        return false;
+    }
+
+    let mut pcb = task.pcb.lock();
+
+    // Verify the area still exists and get a mutable reference
+    if area_index >= pcb.memset.len() {
+        warn!("Memory area index {} is out of bounds", area_index);
+        return false;
+    }
+
+    let area = &mut pcb.memset[area_index];
+    let mut allocated_trackers = Vec::new();
+    let mut success = true;
+
+    // Allocate pages one by one
+    for &page_vaddr in unmapped_pages {
+        // Verify this page is within the area bounds
+        if !area.contains(page_vaddr.raw()) {
+            warn!("Page {:#x} is not within area bounds {:#x}-{:#x}",
+                  page_vaddr.raw(), area.start, area.start + area.len);
+            success = false;
+            break;
+        }
+
+        // Check if this page is already allocated (race condition protection)
+        if area.mtrackers.iter().any(|tracker| tracker.vaddr == page_vaddr.floor()) {
+            debug!("Page {:#x} is already allocated, skipping", page_vaddr.raw());
+            continue;
+        }
+
+        // Allocate a new frame
+        let tracker = match frame_alloc() {
+            Some(frame) => Arc::new(frame),
+            None => {
+                warn!("Frame allocation failed during batch allocation for page {:#x}", page_vaddr.raw());
+                success = false;
+                break;
+            }
+        };
+
+        let mtracker = MapTrack {
+            vaddr: page_vaddr.floor(),
+            tracker,
+            rwx: 0b111,
+        };
+
+        // If this is a file-backed area, read the file content
+        if let Some(file) = &area.file {
+            let file_offset = area.offset + (page_vaddr.floor().raw() - area.start);
+            if let Err(e) = file.readat(
+                file_offset,
+                mtracker.tracker.0.slice_mut_with_len(PAGE_SIZE),
+            ) {
+                debug!("File read failed for page {:#x}, continuing with zero-filled page: {:?}",
+                       page_vaddr.raw(), e);
+                // Continue with zero-filled page instead of failing
+            }
+        }
+
+        allocated_trackers.push(mtracker);
+    }
+
+    if success {
+        // Map all allocated pages to the page table
+        for mtracker in &allocated_trackers {
+            let flags = if area.mtype == MemType::Mmap && mtracker.vaddr.raw() >= 0x200000000 {
+                MappingFlags::URW
+            } else {
+                MappingFlags::URWX
+            };
+
+            task.map(mtracker.tracker.0, mtracker.vaddr, flags);
+            debug!("Mapped page {:#x} to physical {:#x}",
+                   mtracker.vaddr.raw(), mtracker.tracker.0.raw());
+        }
+
+        // Add all trackers to the area
+        area.mtrackers.extend(allocated_trackers);
+
+        debug!("Successfully batch allocated {} pages", unmapped_pages.len());
+        true
+    } else {
+        // Clean up any partially allocated frames
+        // The frames will be automatically deallocated when the Arc<FrameTracker> is dropped
+        warn!("Batch allocation failed, cleaning up {} allocated frames", allocated_trackers.len());
+        false
     }
 }

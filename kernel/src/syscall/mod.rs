@@ -87,7 +87,7 @@ impl UserTaskContainer {
                     .await
             }
             Sysno::exit => self.sys_exit(args[0] as _).await,
-            Sysno::brk => self.sys_brk(args[0] as _).await,
+            Sysno::brk => self.sys_brk(args[0] as _),
             Sysno::getpid => self.sys_getpid().await,
             Sysno::pipe2 => self.sys_pipe2(args[0].into(), args[1] as _).await,
             Sysno::set_robust_list => self.sys_set_robust_list(args[0] as _, args[1] as _).await,
@@ -137,9 +137,8 @@ impl UserTaskContainer {
                     args[4] as _,
                     args[5] as _,
                 )
-                .await
             }
-            Sysno::munmap => self.sys_munmap(args[0] as _, args[1] as _).await,
+            Sysno::munmap => self.sys_munmap(args[0] as _, args[1] as _),
             Sysno::times => self.sys_times(args[0].into()).await,
             Sysno::getdents64 => {
                 self.sys_getdents64(args[0] as _, args[1].into(), args[2] as _)
