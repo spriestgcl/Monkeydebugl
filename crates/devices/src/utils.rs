@@ -17,7 +17,19 @@ pub fn puts(buffer: &[u8]) {
     for i in buffer {
         match main_uart_inited {
             true => MAIN_UART.put(*i),
-            false => DebugConsole::putchar(*i),
+            false => {
+                // 如果DebugConsole也有问题，使用直接UART输出作为最后的回退
+                DebugConsole::putchar(*i);
+                
+                // 备用方案：直接UART输出（如果DebugConsole失败）
+                // 在2k1000上，如果上面的方法仍然有问题，可以启用下面的代码
+                /*
+                unsafe {
+                    let uart_base = 0x800000001fe20000 as *mut u8;
+                    uart_base.write_volatile(*i);
+                }
+                */
+            }
         }
     }
 }

@@ -1,7 +1,7 @@
 SHELL := /bin/bash
 export ROOT_MANIFEST_DIR := $(shell pwd)
 RELEASE := release
-LOG ?= error
+LOG ?= info
 # RISC-V 配置
 RISCV_TARGET := riscv64gc-unknown-none-elf
 RISCV_ARCH := riscv64
@@ -31,7 +31,7 @@ build-riscv:
 build-loongarch:
 	@echo "Building LoongArch kernel..."
 	@if [ -d dotcargo ]; then mv dotcargo .cargo; fi
-	@BOARD=qemu LOG=$(LOG) RUSTFLAGS="-Clink-arg=-no-pie --cfg=driver=\"kvirtio\" --cfg=board=\"qemu\" --cfg=root_fs=\"ext4\"" \
+	@BOARD=2k1000 LOG=$(LOG) RUSTFLAGS="-Clink-arg=-no-pie --cfg=driver=\"kvirtio,kahci\" --cfg=board=\"2k1000\" --cfg=root_fs=\"ext4\"" \
 	cargo build --target $(LOONGARCH_TARGET) --features "$(LOONGARCH_FEATURES)" --release --offline || exit 1
 	@cp $(LOONGARCH_KERNEL_ELF) $(LOONGARCH_KERNEL_OUT) || exit 1
 	@if [ -d .cargo ]; then mv .cargo dotcargo; fi

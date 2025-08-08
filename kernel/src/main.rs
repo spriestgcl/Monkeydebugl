@@ -188,10 +188,13 @@ fn main(hart_id: usize) {
     //println!("猴子1号，你好！");
 
     // initialize filesystem
+    println!("正在初始化文件系统...");
+    println!("找到块设备数量: {}", devices::get_blk_devices().len());
+    for (i, device) in devices::get_blk_devices().iter().enumerate() {
+        println!("块设备 {}: 容量 = {} bytes", i, device.capacity());
+    }
     fs::init();
-    // Note: /var/tmp is already mounted as RamFs in fs::init(), no need to create it manually
-    // 输出根目录下的文件
-    /*  println!("根目录下的文件列表：");
+    println!("根目录下的文件列表：");
     let root_dir = File::open("/".into(), OpenFlags::O_DIRECTORY).expect("无法打开根目录");
     match root_dir.read_dir() {
         Ok(entries) => {
@@ -212,11 +215,14 @@ fn main(hart_id: usize) {
         Err(e) => println!("读取目录失败: {:?}", e),
     }
     // println!("猴子1号，你好！");
+    // Note: /var/tmp is already mounted as RamFs in fs::init(), no need to create it manually
+    // 输出根目录下的文件
+    /*
     // enable interrupts
     IRQ::int_enable();
     // println!("猴子2号，你好！");
 
-    println!("musl目录内容：");
+    println!("=== musl目录内容 ===");
     let musl_dir = File::open("/musl".into(), OpenFlags::O_DIRECTORY).expect("无法打开musl目录");
     match musl_dir.read_dir() {
         Ok(entries) => {
@@ -236,7 +242,7 @@ fn main(hart_id: usize) {
         }
         Err(e) => println!("读取musl目录失败: {:?}", e),
     }
-    println!("glibc目录内容：");
+    println!("=== glibc目录内容 ===");
     let musl_dir = File::open("/glibc".into(), OpenFlags::O_DIRECTORY).expect("无法打开glibc目录");
     match musl_dir.read_dir() {
         Ok(entries) => {
@@ -257,7 +263,7 @@ fn main(hart_id: usize) {
         Err(e) => println!("读取glibc目录失败: {:?}", e),
     }
 
-    println!("musl basic目录内容：");
+    println!("=== musl basic目录内容 ===");
     let musl_dir =
         File::open("/musl/basic".into(), OpenFlags::O_DIRECTORY).expect("无法打开musl/basic目录");
     match musl_dir.read_dir() {
@@ -363,7 +369,7 @@ fn main(hart_id: usize) {
     //current_task.pcb.lock().curr_dir = Arc::new(musl_dir);
     tasks::run_tasks();
 
-    println!("Task All Finished!");
+    println!("=== Task All Finished! ===");
 }
 
 fn secondary(hart_id: usize) {

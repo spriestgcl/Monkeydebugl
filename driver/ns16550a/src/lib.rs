@@ -57,9 +57,28 @@ fn init_driver(node: &Node) -> Arc<dyn Driver> {
         "node interrupts: {:?}",
         node.interrupts().unwrap().flatten().collect::<Vec<u32>>()
     );
+    
+    // 针对2k1000开发板的地址映射修复
+    let uart_addr = if addr == 0x1fe20000 {
+        // 2k1000开发板的UART地址是直接映射的
+        0x800000001fe20000
+    } else {
+        // 其他情况使用原有的虚拟地址映射
+        VIRT_ADDR_START + addr
+    };
+    
+    // 添加调试输出，确认地址映射
+    unsafe {
+        let debug_uart_base = 0x800000001fe20000 as *mut u8;
+        debug_uart_base.write_volatile(b'A'); // Address mapping
+        // 输出计算出的地址的一些位
+        debug_uart_base.write_volatile(b'0' + ((uart_addr >> 28) & 0xF) as u8);
+        debug_uart_base.write_volatile(b'0' + ((uart_addr >> 24) & 0xF) as u8);
+    }
+    
     let uart = Arc::new(NS16550a {
-        _base: VIRT_ADDR_START + addr,
-        inner: Uart::new(VIRT_ADDR_START + addr),
+        _base: uart_addr,
+        inner: Uart::new(uart_addr),
         irqs: node_to_interrupts(node),
     });
     register_device_irqs(uart.clone());
@@ -71,8 +90,15 @@ fn init_driver(node: &Node) -> Arc<dyn Driver> {
         StickParity::DISABLE,
         Break::DISABLE,
         DMAMode::MODE0,
-        Divisor::BAUD1200,
+        Divisor::BAUD115200,
     );
+    
+    // 初始化完成后的测试
+    unsafe {
+        let debug_uart_base = 0x800000001fe20000 as *mut u8;
+        debug_uart_base.write_volatile(b'I'); // Initialized
+    }
+    
     uart
 }
 

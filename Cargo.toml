@@ -24,6 +24,7 @@ members = [
     "driver/kramdisk",
     "driver/kvirtio",
     "driver/ns16550a",
+    "driver/kahci",
 
     #内核
     "kernel",
@@ -41,6 +42,7 @@ kgoldfish-rtc = { path = "driver/kgoldfish-rtc" }
 kramdisk = { path = "driver/kramdisk" }
 kvirtio = { path = "driver/kvirtio" }
 ns16550a = { path = "driver/ns16550a" }
+kahci = { path = "driver/kahci" }
 
 devices = { path = "crates/devices" }
 executor = { path = "crates/executor" }
@@ -60,3 +62,5 @@ syscalls = { git = "https://github.com/jasonwhite/syscalls.git", default-feature
 # polyhal = { path = "../polyhal/polyhal" }
 # polyhal-boot = { path = "../polyhal/polyhal-boot" }
 # polyhal-trap = { path = "../polyhal/polyhal-trap" }
+polyhal-boot = { path = "./patched-deps/polyhal-boot" }
+

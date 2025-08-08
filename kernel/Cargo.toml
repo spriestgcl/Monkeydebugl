@@ -50,3 +50,4 @@ kgoldfish-rtc = { workspace = true }
 kramdisk = { workspace = true }
 general-plic = { workspace = true }
 ns16550a = { workspace = true }
+kahci = { workspace = true }
