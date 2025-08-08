@@ -47,7 +47,7 @@ use polyhal::mem::{get_fdt, get_mem_areas};
 use polyhal::{va, PhysAddr};
 use polyhal_trap::trap::TrapType;
 use polyhal_trap::trapframe::{TrapFrame, TrapFrameArgs};
-use runtime::frame::{frame_alloc_persist, frame_unalloc};
+use runtime::frame::{frame_alloc, frame_alloc_persist, frame_unalloc};
 use tasks::UserTask;
 use user::user_cow_int;
 use vfscore::OpenFlags;
@@ -57,7 +57,16 @@ pub struct PageAllocImpl;
 impl PageAlloc for PageAllocImpl {
     #[inline]
     fn alloc(&self) -> PhysAddr {
-        unsafe { frame_alloc_persist().expect("can't alloc frame") }
+        if let Some(frame_tracker) = frame_alloc() {
+            frame_tracker.0
+        } else {
+            // 在panic前输出详细的内存状态信息
+            println!("=== MEMORY ALLOCATION FAILED ===");
+            println!("Free pages available: {}", runtime::frame::get_free_pages());
+            println!("Memory allocation failed - no frames available");
+
+            panic!("can't alloc frame - no memory available")
+        }
     }
 
     #[inline]
@@ -355,10 +364,11 @@ fn main(hart_id: usize) {
     //tasks::exec::cache_task_template("/musl/lib/libc.so".into()).expect("can't cache task");
     // tasks::exec::cache_task_template("/lua".into()).expect("can't cache task");tasks::exec::cache_task_template("/lmbench_all").expect("can't cache task");
 
+    // 在任务初始化前检查内存状态
+    println!("=== 内存状态检查 ===");
+    println!("可用页帧数量: {}", runtime::frame::get_free_pages());
+
     // init kernel threads and async executor
-    //tasks::init();
-    //log::info!("run tasks");
-    // loop { arch::wfi() }
     tasks::init();
     log::info!("run tasks");
     //println!("猴子1000号，你好！");
@@ -378,6 +388,32 @@ fn secondary(hart_id: usize) {
     // tasks::run_tasks();
     loop {
         spin_loop();
+    }
+}
+
+/// Debug UART output function for AHCI driver
+#[no_mangle]
+pub extern "C" fn debug_uart_string(s: *const u8) {
+    if s.is_null() {
+        return;
+    }
+
+    let mut len = 0;
+    unsafe {
+        while *s.add(len) != 0 {
+            len += 1;
+            if len > 1024 {
+                // Safety limit
+                break;
+            }
+        }
+
+        if len > 0 {
+            let slice = core::slice::from_raw_parts(s, len);
+            if let Ok(str_val) = core::str::from_utf8(slice) {
+                print!("{}", str_val);
+            }
+        }
     }
 }
 

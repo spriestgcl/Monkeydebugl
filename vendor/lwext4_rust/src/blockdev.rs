@@ -242,12 +242,13 @@ impl<K: KernelDevOp> Ext4BlockWrapper<K> {
         //
         //  ext4_journal_stop("/");
         //  ext4_umount("/");
-        let r = ext4_journal_start(c_mountpoint);
-        if r != EOK as i32 {
-            error!("ext4_journal_start: rc = {:?}\n", r);
-            return Err(r);
-        }
-        ext4_cache_write_back(c_mountpoint, true);
+        // 关闭日志与写回，减少内存占用
+        // let r = ext4_journal_start(c_mountpoint);
+        // if r != EOK as i32 {
+        //     error!("ext4_journal_start: rc = {:?}\n", r);
+        //     return Err(r);
+        // }
+        ext4_cache_write_back(c_mountpoint, false);
         // ext4_bcache
 
         info!("lwext4 mount Okay");

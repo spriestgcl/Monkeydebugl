@@ -1,148 +1,99 @@
-// AHCI 驱动的数据结构定义，参考 ahci/rust/src/libahci.rs
+// AHCI 类型定义，参考 ahci/c/ahci_platform.h
 
-use crate::platform::*;
-
-// ATA相关常量
-pub const ATA_ID_PROD_LEN: u32 = 40;
-pub const ATA_ID_SERNO_LEN: u32 = 20; 
-pub const ATA_ID_FW_REV_LEN: u32 = 8;
-
-// AHCI相关常量
-pub const AHCI_MAX_PORTS: u32 = 32;
-pub const AHCI_MAX_SG: u32 = 56;
-pub const AHCI_MAX_CMDS: u32 = 32;
-pub const AHCI_CMD_SZ: u32 = 32;
-pub const AHCI_CMD_SLOT_SZ: u32 = AHCI_MAX_CMDS * AHCI_CMD_SZ;
-pub const AHCI_RX_FIS_SZ: u32 = 256;
-pub const AHCI_CMD_TBL_HDR_SZ: u32 = 128;
-pub const AHCI_CMD_TBL_SZ: u32 = AHCI_CMD_TBL_HDR_SZ + (AHCI_MAX_SG * 16);
-
-// SATA标志位
-pub const SATA_FLAG_FLUSH_EXT: u32 = 1024;
-pub const SATA_FLAG_FLUSH: u32 = 512;
-pub const SATA_FLAG_WCACHE: u32 = 256;
-
-// 读写命令类型
-pub const READ_CMD: u32 = 0;
-pub const WRITE_CMD: u32 = 1;
-
-/// AHCI 命令头结构体
-#[derive(Copy, Clone)]
-#[repr(C)]
-pub struct ahci_cmd_hdr {
-    pub opts: u32,
-    pub status: u32,
-    pub tbl_addr_lo: u32,
-    pub tbl_addr_hi: u32,
-    pub reserved: [u32; 4],
-}
-
-/// AHCI 散列表项
-#[derive(Copy, Clone)]
-#[repr(C)]
-pub struct ahci_sg {
-    pub addr_lo: u32,
-    pub addr_hi: u32,
-    pub reserved: u32,
-    pub flags_size: u32,
-}
-
-/// AHCI IO端口结构体
+/// AHCI 端口结构体
 #[derive(Copy, Clone)]
 #[repr(C)]
 pub struct ahci_ioport {
-    pub port_mmio: u64,
-    pub cmd_slot: *mut ahci_cmd_hdr,
-    pub cmd_slot_dma: u64,
-    pub rx_fis: u64,
-    pub rx_fis_dma: u64,
-    pub cmd_tbl: u64,
-    pub cmd_tbl_dma: u64,
-    pub cmd_tbl_sg: *mut ahci_sg,
+    pub port_mmio: u64,        // 端口寄存器基地址
+    pub cmd_slot: *mut u8,     // 命令列表基地址
+    pub cmd_slot_dma: u64,     // 命令列表DMA地址
+    pub rx_fis_dma: u64,       // 接收FIS DMA地址
+    pub cmd_tbl_dma: u64,      // 命令表DMA地址
+    pub cmd_tbl: u64,          // 命令表基地址
 }
 
-/// AHCI 块设备结构体 - 代表sata硬盘
+/// AHCI 块设备结构体
 #[derive(Copy, Clone)]
 #[repr(C)]
 pub struct ahci_blk_dev {
-    pub lba48: bool,
-    pub lba: u64,
-    pub blksz: u64,  // 块大小，固定为512
-    pub queue_depth: u32,
-    pub product: [u8; (ATA_ID_PROD_LEN + 1) as usize],
-    pub serial: [u8; (ATA_ID_SERNO_LEN + 1) as usize],
-    pub revision: [u8; (ATA_ID_FW_REV_LEN + 1) as usize],
+    pub lba48: bool,           // 是否支持LBA48
+    pub lba: u64,              // 逻辑块地址数量
+    pub blksz: u32,            // 块大小
+    pub lba_offset: u64,       // 分区起始LBA偏移（用于MBR/GPT）
 }
 
-/// AHCI 设备结构体 - 代表ahci控制器
+/// AHCI 设备结构体
 #[derive(Copy, Clone)]
 #[repr(C)]
 pub struct ahci_device {
-    pub mmio_base: u64,
-    
-    pub flags: u32,
-    
-    pub cap: u32,
-    pub cap2: u32,
-    pub version: u32,
-    pub port_map: u32,
-    
-    pub pio_mask: u32,
-    pub udma_mask: u32,
-    
-    pub n_ports: u8,  // 端口数量
-    pub port_map_linkup: u32,
-    pub port: [ahci_ioport; 32],
-    pub port_idx: u8,  // 启用的端口索引，根据资料固定为0
-    
-    pub blk_dev: ahci_blk_dev,  // 由于只有1个端口，直接包含1个块设备
+    pub mmio_base: u64,        // AHCI控制器寄存器基地址
+    pub cap: u32,              // HOST_CAP 寄存器
+    pub cap2: u32,             // HOST_CAP2 寄存器
+    pub version: u32,          // HOST_VERSION 寄存器
+    pub port_map: u32,         // HOST_PORTS_IMPL 寄存器
+    pub port_map_linkup: u32,  // 端口连接状态
+    pub n_ports: u32,          // 端口数量
+    pub port_idx: u32,         // 当前使用的端口索引
+    pub port: [ahci_ioport; 32], // 端口数组
+    pub blk_dev: ahci_blk_dev, // 块设备信息
 }
 
-impl Default for ahci_blk_dev {
-    fn default() -> Self {
-        ahci_blk_dev {
-            lba48: true,  // 默认支持lba48
-            lba: 0,
-            blksz: 512,   // 固定块大小512字节
-            queue_depth: 1,
-            product: [0; (ATA_ID_PROD_LEN + 1) as usize],
-            serial: [0; (ATA_ID_SERNO_LEN + 1) as usize],
-            revision: [0; (ATA_ID_FW_REV_LEN + 1) as usize],
-        }
-    }
-}
+// AHCI 寄存器偏移定义
+pub const AHCI_GHC: u64 = 0x04;      // Global Host Control
+pub const AHCI_CAP: u64 = 0x00;      // Host Capabilities
+pub const AHCI_CAP2: u64 = 0x24;     // Host Capabilities Extended
+pub const AHCI_PI: u64 = 0x0C;       // Ports Implemented
+pub const AHCI_VS: u64 = 0x10;       // AHCI Version
 
-impl Default for ahci_ioport {
-    fn default() -> Self {
-        ahci_ioport {
-            port_mmio: 0,
-            cmd_slot: core::ptr::null_mut(),
-            cmd_slot_dma: 0,
-            rx_fis: 0,
-            rx_fis_dma: 0,
-            cmd_tbl: 0,
-            cmd_tbl_dma: 0,
-            cmd_tbl_sg: core::ptr::null_mut(),
-        }
-    }
-}
+// 端口寄存器偏移
+pub const PORT_SSTS: u64 = 0x28;     // Port Serial ATA Status
+pub const PORT_CMD: u64 = 0x18;      // Port Command
+pub const PORT_CLB: u64 = 0x00;      // Port Command List Base
+pub const PORT_CLBU: u64 = 0x04;     // Port Command List Base Upper
+pub const PORT_FB: u64 = 0x08;       // Port FIS Base
+pub const PORT_FBU: u64 = 0x0C;      // Port FIS Base Upper
+pub const PORT_IS: u64 = 0x10;       // Port Interrupt Status
+pub const PORT_IE: u64 = 0x14;       // Port Interrupt Enable
+pub const PORT_CMD_ISSUE: u64 = 0x38; // Port Command Issue
+pub const PORT_TFD: u64 = 0x20;      // Port Task File Data
 
-impl Default for ahci_device {
-    fn default() -> Self {
-        ahci_device {
-            mmio_base: 0,
-            flags: 0,
-            cap: 0,
-            cap2: 0,
-            version: 0,
-            port_map: 0,
-            pio_mask: 0,
-            udma_mask: 0,
-            n_ports: 0,
-            port_map_linkup: 0,
-            port: [ahci_ioport::default(); 32],
-            port_idx: 0,  // 根据资料，固定使用端口0
-            blk_dev: ahci_blk_dev::default(),
-        }
-    }
-}
+// AHCI 命令和状态位
+pub const HOST_AHCI_EN: u32 = 1 << 31;  // AHCI Enable
+pub const HOST_IRQ_EN: u32 = 1 << 1;    // Interrupt Enable
+pub const PORT_CMD_ST: u32 = 1 << 0;    // Start
+pub const PORT_CMD_FRE: u32 = 1 << 4;   // FIS Receive Enable
+pub const PORT_CMD_FR: u32 = 1 << 14;   // FIS Receive Running
+pub const PORT_CMD_CR: u32 = 1 << 15;   // Command Running
+
+// SATA FIS 类型
+pub const SATA_FIS_TYPE_REGISTER_H2D: u8 = 0x27; // Register FIS - Host to Device
+
+// ATA 命令
+pub const ATA_CMD_IDENTIFY_DEVICE: u8 = 0xEC;
+pub const ATA_CMD_READ_DMA: u8 = 0xC8;
+pub const ATA_CMD_READ_DMA_EXT: u8 = 0x25;
+pub const ATA_CMD_WRITE_DMA: u8 = 0xCA;
+pub const ATA_CMD_WRITE_DMA_EXT: u8 = 0x35;
+pub const ATA_CMD_FLUSH_CACHE: u8 = 0xE7;
+pub const ATA_CMD_FLUSH_CACHE_EXT: u8 = 0xEA;
+
+// ATA 设备/头部寄存器位
+pub const ATA_LBA: u8 = 0x40;        // LBA 模式
+
+// 设备识别数据偏移
+pub const ATA_ID_PIO_MODES: usize = 63;
+pub const ATA_ID_UDMA_MODES: usize = 88;
+pub const ATA_ID_WORDS: usize = 256;
+
+// 最大传输大小
+pub const AHCI_MAX_BYTES_PER_TRANS: u32 = 65536 * 512; // 32MB
+
+// 命令表大小
+pub const AHCI_CMD_SZ: u32 = 32;     // 命令列表条目大小
+pub const AHCI_CMD_TBL_SZ: u32 = 256; // 命令表大小
+
+// SATA 状态位
+pub const SATA_DET_MASK: u32 = 0xF;  // 设备检测掩码
+pub const SATA_DET_PRESENT: u32 = 0x3; // 设备存在
+pub const SATA_IPM_MASK: u32 = 0xF00; // 接口电源管理掩码
+pub const SATA_IPM_ACTIVE: u32 = 0x100; // 活动状态
