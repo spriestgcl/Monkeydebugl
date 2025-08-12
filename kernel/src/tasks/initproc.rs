@@ -518,6 +518,7 @@ pub async fn initproc() {
         // .await;
 
         let glibc_home_dir = PathBuf::from("/glibc");
+        
         // 确保glibc目录也有正确的链接
         command("/glibc/busybox mkdir -p /bin", glibc_home_dir.clone()).await;
         // command(
