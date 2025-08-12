@@ -105,24 +105,39 @@ impl INodeInterface for FatFile {
         let seek_curr = SeekFrom::Start(offset as _);
         let curr_off = inner.inner.seek(seek_curr).map_err(as_vfs_err)? as usize;
         if offset != curr_off {
-            let buffer = vec![0u8; 512];
-            loop {
-                let wlen = cmp::min(offset - inner.size, 512);
+            // 需要填充零字节从curr_off到offset
+            let zero_buffer = vec![0u8; 512];
+            let mut remaining_zeros = offset - curr_off;
 
-                if wlen == 0 {
-                    break;
+            while remaining_zeros > 0 {
+                let wlen = cmp::min(remaining_zeros, 512);
+                let real_wlen = inner.inner.write(&zero_buffer[..wlen]).map_err(as_vfs_err)?;
+                if real_wlen == 0 {
+                    break; // 无法继续写入
                 }
-                let real_wlen = inner.inner.write(&buffer).map_err(as_vfs_err)?;
+                remaining_zeros -= real_wlen;
                 inner.size += real_wlen;
             }
         }
 
-        inner.inner.write_all(buffer).map_err(as_vfs_err)?;
+        // 使用循环写入来确保所有数据都被写入，并正确跟踪写入的字节数
+        let mut total_written = 0;
+        let mut remaining = buffer;
 
-        if offset + buffer.len() > inner.size {
-            inner.size = offset + buffer.len();
+        while !remaining.is_empty() {
+            let written = inner.inner.write(remaining).map_err(as_vfs_err)?;
+            if written == 0 {
+                // 如果write返回0，说明无法继续写入
+                break;
+            }
+            total_written += written;
+            remaining = &remaining[written..];
         }
-        Ok(buffer.len())
+
+        if offset + total_written > inner.size {
+            inner.size = offset + total_written;
+        }
+        Ok(total_written)
     }
 
     fn flush(&self) -> VfsResult<()> {

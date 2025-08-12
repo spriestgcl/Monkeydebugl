@@ -249,6 +249,8 @@ impl File {
 
     pub fn read(&self, buffer: &mut [u8]) -> Result<usize, Errno> {
         let offset = *self.offset.lock();
+        // 读取前先刷新，避免读取到旧缓存
+        let _ = self.inner.flush();
         self.inner.readat(offset, buffer).map(|x| {
             *self.offset.lock() += x;
             x
@@ -261,7 +263,10 @@ impl File {
             return Ok(0);
         }
         let offset = *self.offset.lock();
-        self.inner.writeat(offset, buffer).map(|x| {
+        let n = self.inner.writeat(offset, buffer)?;
+        // 写后刷新，保证随后的读取可见
+        let _ = self.inner.flush();
+        Ok(n).map(|x| {
             *self.offset.lock() += x;
             x
         })
@@ -270,8 +275,12 @@ impl File {
     pub async fn async_read(&self, buffer: &mut [u8]) -> Result<usize, Errno> {
         let offset = *self.offset.lock();
         if self.flags.lock().contains(OpenFlags::O_NONBLOCK) {
+            // 非阻塞直接读前也刷新一次
+            let _ = self.inner.flush();
             self.inner.readat(offset, buffer)
         } else {
+            // 阻塞读前刷新，确保底层缓存一致
+            let _ = self.inner.flush();
             WaitBlockingRead::new(self.inner.clone(), buffer, offset).await
         }
         .map(|x| {
@@ -286,12 +295,10 @@ impl File {
             return Ok(0);
         }
         let offset = *self.offset.lock();
-        WaitBlockingWrite::new(self.inner.clone(), &buffer, offset)
-            .await
-            .map(|x| {
-                *self.offset.lock() += x;
-                x
-            })
+        let n = WaitBlockingWrite::new(self.inner.clone(), &buffer, offset).await?;
+        let _ = self.inner.flush();
+        *self.offset.lock() += n;
+        Ok(n)
     }
 
     pub fn seek(&self, seek_from: SeekFrom) -> Result<usize, Errno> {

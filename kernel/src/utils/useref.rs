@@ -66,84 +66,32 @@ impl<T> UserRef<T> {
         let start_page = start_addr / PageTable::PAGE_SIZE;
         let end_page = (end_addr - 1) / PageTable::PAGE_SIZE;
 
-        // If accessing multiple pages, we need to ensure all pages are mapped and contiguous
+        // For cross-page buffers, ensure the involved user pages are mapped; do NOT require physical contiguity
         if start_page != end_page {
-            log::debug!("Cross-page buffer access detected: start={:#x}, end={:#x}, pages={}-{}, len={}, element_size={}",
-                       start_addr, end_addr, start_page, end_page, len, element_size);
-
-            // Get current task to access its page table
             let task = current_task();
             if let Ok(user_task) = task.downcast_arc::<crate::tasks::UserTask>() {
-                // First pass: identify unmapped pages and try to allocate them
+                // Collect unmapped pages
                 let mut unmapped_pages = Vec::new();
-
                 for page_num in start_page..=end_page {
                     let page_addr = VirtAddr::new(page_num * PageTable::PAGE_SIZE);
                     if user_task.page_table.translate(page_addr).is_none() {
                         unmapped_pages.push(page_addr);
                     }
                 }
-
-                // If we found unmapped pages, try to allocate them in batch
+                // Allocate missing pages in batch if needed
                 if !unmapped_pages.is_empty() {
-                    log::warn!("Found {} unmapped pages in cross-page access, attempting batch allocation", unmapped_pages.len());
-
-                    // Try to allocate missing pages using the batch allocation function
                     if !self.batch_allocate_missing_pages(user_task.clone(), &unmapped_pages) {
-                        log::error!("Batch allocation failed for unmapped pages");
-                        return &mut [];
-                    }
-
-                    log::info!("Successfully allocated {} missing pages", unmapped_pages.len());
-                }
-
-                // Second pass: verify all pages are now mapped and check contiguity
-                let mut prev_phys_end = None;
-
-                for page_num in start_page..=end_page {
-                    let page_addr = VirtAddr::new(page_num * PageTable::PAGE_SIZE);
-
-                    // Check if this page is mapped
-                    if let Some((phys_addr, _flags)) = user_task.page_table.translate(page_addr) {
-                        log::debug!("Page at {:#x} is mapped to physical {:#x}", page_addr.raw(), phys_addr.raw());
-
-                        // Check if pages are physically contiguous
-                        if let Some(expected_start) = prev_phys_end {
-                            if phys_addr.raw() != expected_start {
-                                log::error!("CRITICAL: Non-contiguous physical pages detected! Expected {:#x}, got {:#x}",
-                                           expected_start, phys_addr.raw());
-
-                                // Output all page mappings from start to end for debugging
-                                log::error!("Dumping all page mappings in range:");
-                                for debug_page_num in start_page..=end_page {
-                                    let debug_page_addr = VirtAddr::new(debug_page_num * PageTable::PAGE_SIZE);
-                                    if let Some((debug_phys_addr, _)) = user_task.page_table.translate(debug_page_addr) {
-                                        log::error!("Page at {:#x} is mapped to physical {:#x}", debug_page_addr.raw(), debug_phys_addr.raw());
-                                    } else {
-                                        log::error!("Page at {:#x} is NOT mapped", debug_page_addr.raw());
-                                    }
-                                }
-
-                                // Pages are not physically contiguous, cannot safely create a single slice
-                                return &mut [];
-                            }
-                        }
-                        prev_phys_end = Some(phys_addr.raw() + PageTable::PAGE_SIZE);
-                    } else {
-                        log::error!("CRITICAL: Page at {:#x} is still unmapped after batch allocation", page_addr.raw());
+                        log::error!("Failed to allocate missing user pages for cross-page buffer");
                         return &mut [];
                     }
                 }
-
-                log::debug!("All pages are mapped and physically contiguous, proceeding with slice creation");
             } else {
-                log::error!("Failed to get current user task for page validation");
-                // Without task context, we cannot validate pages safely
-                return &mut [];
+                // If we cannot get user task context, fall back to creating the slice; page faults will handle mapping
+                log::warn!("UserRef: no user task context for page validation; proceeding without pre-validation");
             }
         }
 
-        // All pages are mapped and contiguous (or single page), safe to create the slice
+        // All pages are mapped (or single page); create the slice over virtual memory (physical contiguity not required)
         self.addr.slice_mut_with_len(len)
     }
 

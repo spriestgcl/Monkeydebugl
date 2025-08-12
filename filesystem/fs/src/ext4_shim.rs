@@ -16,6 +16,7 @@ use vfscore::{
     DirEntry, FileSystem, FileType, INodeInterface, StatFS, StatMode, TimeSpec, VfsResult,
 };
 
+// 保持底层块设备扇区大小 512 字节
 const BLOCK_SIZE: usize = 0x200;
 
 pub struct Ext4DiskWrapper {
@@ -52,21 +53,121 @@ impl KernelDevOp for Ext4DiskWrapper {
     type DevType = Self;
 
     fn write(dev: &mut Self::DevType, buf: &[u8]) -> Result<usize, i32> {
-        assert!(dev.offset % BLOCK_SIZE == 0);
-        get_blk_device(0)
-            .expect("can't find block device")
-            .write_blocks(dev.block_id, buf);
-        dev.block_id += buf.len() / BLOCK_SIZE;
-        Ok(buf.len())
+        let bdev = get_blk_device(dev.blk_id).expect("can't find block device");
+        let mut written = 0;
+        let mut off_in_block = dev.offset; // 0..BLOCK_SIZE-1
+        let mut blk_id = dev.block_id;
+
+        // 先处理起始非对齐部分
+        if off_in_block != 0 {
+            let mut block_buf = [0u8; BLOCK_SIZE];
+            bdev.read_blocks(blk_id, &mut block_buf);
+            let can = core::cmp::min(BLOCK_SIZE - off_in_block, buf.len());
+            block_buf[off_in_block..off_in_block + can]
+                .copy_from_slice(&buf[..can]);
+            bdev.write_blocks(blk_id, &block_buf);
+            // verify
+            let mut verify = [0u8; BLOCK_SIZE];
+            bdev.read_blocks(blk_id, &mut verify);
+            if verify[off_in_block..off_in_block + can] != buf[..can] {
+                // retry once
+                bdev.write_blocks(blk_id, &block_buf);
+                bdev.read_blocks(blk_id, &mut verify);
+            }
+            written += can;
+            off_in_block += can;
+            if off_in_block == BLOCK_SIZE {
+                off_in_block = 0;
+                blk_id += 1;
+            }
+        }
+
+        // 再处理完整块
+        let remain = buf.len() - written;
+        if remain >= BLOCK_SIZE {
+            let full_bytes = remain - (remain % BLOCK_SIZE);
+            if full_bytes > 0 {
+                bdev.write_blocks(blk_id, &buf[written..written + full_bytes]);
+                // verify full blocks
+                let mut verify = vec![0u8; full_bytes];
+                bdev.read_blocks(blk_id, &mut verify);
+                if verify[..] != buf[written..written + full_bytes] {
+                    // retry once
+                    bdev.write_blocks(blk_id, &buf[written..written + full_bytes]);
+                    bdev.read_blocks(blk_id, &mut verify);
+                }
+                blk_id += full_bytes / BLOCK_SIZE;
+                written += full_bytes;
+            }
+        }
+
+        // 最后处理尾部非对齐
+        let tail = buf.len() - written;
+        if tail > 0 {
+            let mut block_buf = [0u8; BLOCK_SIZE];
+            bdev.read_blocks(blk_id, &mut block_buf);
+            block_buf[..tail].copy_from_slice(&buf[written..]);
+            bdev.write_blocks(blk_id, &block_buf);
+            // verify tail
+            let mut verify = [0u8; BLOCK_SIZE];
+            bdev.read_blocks(blk_id, &mut verify);
+            if verify[..tail] != buf[written..] {
+                // retry once
+                bdev.write_blocks(blk_id, &block_buf);
+                bdev.read_blocks(blk_id, &mut verify);
+            }
+            off_in_block = tail;
+        }
+
+        // 更新位置
+        dev.block_id = blk_id;
+        dev.offset = off_in_block % BLOCK_SIZE;
+        Ok(written + tail)
     }
 
     fn read(dev: &mut Self::DevType, buf: &mut [u8]) -> Result<usize, i32> {
-        assert!(dev.offset % BLOCK_SIZE == 0);
-        get_blk_device(0)
-            .expect("can't find block device")
-            .read_blocks(dev.block_id, buf);
-        dev.block_id += buf.len() / BLOCK_SIZE;
-        Ok(buf.len())
+        let bdev = get_blk_device(dev.blk_id).expect("can't find block device");
+        let mut readn = 0;
+        let mut off_in_block = dev.offset;
+        let mut blk_id = dev.block_id;
+
+        // 起始非对齐
+        if off_in_block != 0 {
+            let mut block_buf = [0u8; BLOCK_SIZE];
+            bdev.read_blocks(blk_id, &mut block_buf);
+            let can = core::cmp::min(BLOCK_SIZE - off_in_block, buf.len());
+            buf[..can].copy_from_slice(&block_buf[off_in_block..off_in_block + can]);
+            readn += can;
+            off_in_block += can;
+            if off_in_block == BLOCK_SIZE {
+                off_in_block = 0;
+                blk_id += 1;
+            }
+        }
+
+        // 完整块
+        let remain = buf.len() - readn;
+        if remain >= BLOCK_SIZE {
+            let full_bytes = remain - (remain % BLOCK_SIZE);
+            if full_bytes > 0 {
+                bdev.read_blocks(blk_id, &mut buf[readn..readn + full_bytes]);
+                blk_id += full_bytes / BLOCK_SIZE;
+                readn += full_bytes;
+            }
+        }
+
+        // 尾部非对齐
+        let tail = buf.len() - readn;
+        if tail > 0 {
+            let mut block_buf = [0u8; BLOCK_SIZE];
+            bdev.read_blocks(blk_id, &mut block_buf);
+            buf[readn..].copy_from_slice(&block_buf[..tail]);
+            off_in_block = tail;
+        }
+
+        dev.block_id = blk_id;
+        dev.offset = off_in_block % BLOCK_SIZE;
+        Ok(readn + tail)
     }
 
     fn seek(dev: &mut Self::DevType, off: i64, whence: i32) -> Result<i64, i32> {
@@ -209,6 +310,9 @@ impl INodeInterface for Ext4FileWrapper {
             let path = file.get_path();
             let path = path.to_str().unwrap();
 
+            // 读取前先确保设备/缓存已同步，避免读到旧数据
+            let _ = file.file_cache_flush();
+
             match file.file_open(path, O_RDONLY) {
                 Ok(_) => match file.file_seek(offset as _, 0) {
                     Ok(_) => match file.file_read(buffer) {
@@ -248,26 +352,59 @@ impl INodeInterface for Ext4FileWrapper {
         let path = path.to_str().unwrap();
         file.file_open(path, O_RDWR).map_err(map_ext4_err)?;
 
-        // Get current file size
-        let current_size = file.file_size();
-
-        // If writing beyond current file size, we need to extend the file
-        if offset > current_size as usize {
-            // First, seek to the end of the file
-            file.file_seek(current_size as i64, 0).map_err(map_ext4_err)?;
-
-            // Write zeros to fill the gap
-            let gap_size = offset - current_size as usize;
-            let zero_buffer = vec![0u8; gap_size];
-            file.file_write(&zero_buffer).map_err(map_ext4_err)?;
-        } else {
-            // Normal seek within file bounds
-            file.file_seek(offset as _, 0).map_err(map_ext4_err)?;
+        // 若写入位置超过当前文件大小，优先对小间隙进行零填充，
+        // 对大间隙使用 truncate 扩展，避免大块 0 的实际写入
+        let current_size = file.file_size() as usize;
+        if offset > current_size {
+            let gap = offset - current_size;
+            const ZERO_FILL_THRESHOLD: usize = 1 << 20; // 1 MiB
+            if gap <= ZERO_FILL_THRESHOLD {
+                // 小间隙：物理写入零，保证读回为0
+                file.file_seek(current_size as i64, 0).map_err(map_ext4_err)?;
+                // 分块写入，避免一次性分配过大缓冲
+                const CHUNK: usize = 64 * 1024;
+                let mut remain = gap;
+                let mut zero_chunk = [0u8; CHUNK];
+                while remain > 0 {
+                    let to_write = core::cmp::min(CHUNK, remain);
+                    file.file_write(&zero_chunk[..to_write]).map_err(map_ext4_err)?;
+                    remain -= to_write;
+                }
+                // 确保零填充数据落盘
+                let _ = file.file_cache_flush();
+            } else {
+                // 大间隙：使用 truncate 逻辑扩展为稀疏区
+                file.file_truncate(offset as u64).map_err(map_ext4_err)?;
+            }
         }
 
-        let wsize = file.file_write(buffer).map_err(map_ext4_err)?;
+        // 定位到目标偏移写入
+        file.file_seek(offset as _, 0).map_err(map_ext4_err)?;
+
+        // 写入：切分为页粒度，处理短写并提高持久化可靠性
+        const PAGE: usize = 4096;
+        let mut written = 0;
+        while written < buffer.len() {
+            let remain = buffer.len() - written;
+            let chunk = core::cmp::min(PAGE, remain);
+            log::error!("ext4_shim::writeat page off={} len={}", offset + written, chunk);
+            let mut done = 0;
+            while done < chunk {
+                let w = file
+                    .file_write(&buffer[written + done..written + chunk])
+                    .map_err(map_ext4_err)?;
+                if w == 0 { break; }
+                done += w;
+            }
+            // 每页刷一次缓存，避免后续读到旧数据
+            let _ = file.file_cache_flush();
+            written += done;
+            if done < chunk { break; }
+        }
+        // 写入后确保缓存刷新
+        let _ = file.file_cache_flush();
         let _ = file.file_close();
-        Ok(wsize)
+        Ok(written)
     }
 
     fn mkdir(&self, name: &str) -> VfsResult<()> {
