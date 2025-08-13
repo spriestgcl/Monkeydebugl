@@ -10,8 +10,7 @@ mod platform;
 
 use crate::ahci_core::*;
 use crate::ahci_types::*;
-use crate::platform::*;
-use alloc::format;
+use log::warn;
 use devices::driver_define;
 use alloc::sync::Arc;
 use core::ptr::{addr_of, addr_of_mut};
@@ -119,8 +118,19 @@ impl devices::device::BlkDriver for BlockDeviceWrapper {
 
 // 使用driver_define!宏注册驱动
 driver_define!({
-    unsafe {
-        let _ = ahci_init(&mut *addr_of_mut!(GLOBAL_AHCI_DEVICE));
-    }
-    Some(Arc::new(AhciDriver::new()))
+    // 初始化 AHCI 控制器，只有成功且容量非零时才注册驱动
+    let ok = unsafe {
+        let ret = ahci_init(&mut *addr_of_mut!(GLOBAL_AHCI_DEVICE));
+        if ret != 0 {
+            warn!("AHCI: initialization failed, skip registering driver");
+            false
+        } else if (*addr_of!(GLOBAL_AHCI_DEVICE)).blk_dev.lba == 0 {
+            warn!("AHCI: device capacity is zero, skip registering driver");
+            false
+        } else {
+            true
+        }
+    };
+
+    if ok { Some(Arc::new(AhciDriver::new())) } else { None }
 });

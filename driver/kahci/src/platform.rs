@@ -43,9 +43,12 @@ pub fn ahci_sync_dcache() {
 }
 
 /// 分配按align字节对齐的内存
+// 持有分配到的页帧以防被自动释放
+static mut AHCI_ALLOC_HOLD: Option<alloc::vec::Vec<devices::FrameTracker>> = None;
+
 pub fn ahci_malloc_align(size: u64, _align: u32) -> u64 {
     // 使用devices crate的内存分配器
-    use devices::{frame_alloc, frame_alloc_much};
+    use devices::{frame_alloc, frame_alloc_much, VIRT_ADDR_START};
     
     let pages = (size + 4095) / 4096; // 向上取整到页数
     
@@ -58,22 +61,29 @@ pub fn ahci_malloc_align(size: u64, _align: u32) -> u64 {
         unsafe { debug_uart_string(debug_msg.as_ptr()); }
     }
     
-    // 先尝试批量分配
+    // 先尝试批量分配（连续物理页）
     if let Some(frames) = frame_alloc_much(pages as usize) {
-        if let Some(first_frame) = frames.first() {
-            let addr = first_frame.raw() as u64;
-            if KAHCI_PLATFORM_LOG {
-                let debug_msg = alloc::format!("[KAHCI] Allocated memory at 0x{:x} (batch)\n\0", addr);
-                unsafe { debug_uart_string(debug_msg.as_ptr()); }
-            }
-            return addr;
+        let first_vaddr = (frames[0].raw() | VIRT_ADDR_START) as u64;
+        // 持有所有页帧，确保不会被 drop 释放
+        unsafe {
+            if AHCI_ALLOC_HOLD.is_none() { AHCI_ALLOC_HOLD = Some(alloc::vec::Vec::new()); }
+            AHCI_ALLOC_HOLD.as_mut().unwrap().extend(frames);
         }
+        if KAHCI_PLATFORM_LOG {
+            let debug_msg = alloc::format!("[KAHCI] Allocated {} contiguous pages at 0x{:x} (batch)\n\0", pages, first_vaddr);
+            unsafe { debug_uart_string(debug_msg.as_ptr()); }
+        }
+        return first_vaddr;
     }
     
     // 如果批量分配失败，尝试单个页面分配
     if pages == 1 {
         if let Some(frame) = frame_alloc() {
-            let addr = frame.raw() as u64;
+            let addr = (frame.raw() | VIRT_ADDR_START) as u64;
+            unsafe {
+                if AHCI_ALLOC_HOLD.is_none() { AHCI_ALLOC_HOLD = Some(alloc::vec::Vec::new()); }
+                AHCI_ALLOC_HOLD.as_mut().unwrap().push(frame);
+            }
             if KAHCI_PLATFORM_LOG {
                 let debug_msg = alloc::format!("[KAHCI] Allocated memory at 0x{:x} (single)\n\0", addr);
                 unsafe { debug_uart_string(debug_msg.as_ptr()); }
@@ -142,6 +152,12 @@ pub fn ahci_malloc_align(size: u64, _align: u32) -> u64 {
 pub fn ahci_phys_to_uncached(pa: u64) -> u64 {
     // LoongArch64 uncached地址映射：物理地址 | 0x8000_0000_0000_0000
     pa | 0x8000_0000_0000_0000u64
+}
+
+/// 平台上的 AHCI 控制器物理 MMIO 基址（无 DTB 情况下硬编码）
+#[inline]
+pub fn ahci_mmio_phys_base() -> u64 {
+    0x400e_0000
 }
 
 /// cached虚拟地址转换为物理地址

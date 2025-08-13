@@ -155,6 +155,9 @@ fn main(hart_id: usize) {
     //println!("猴子1号，你好！");
     // Ensure this is the first core
     runtime::init();
+    // Ensure a logger is installed regardless of HAL logger feature
+    crate::logging::init_logger();
+    println!("[INFO ] <kernel::main:{}> logger initialized with level {}", line!(), option_env!("LOG").unwrap_or("info"));
     //println!("猴子1号，你好！");
 
     let str = include_str!("banner.txt");
@@ -162,10 +165,57 @@ fn main(hart_id: usize) {
     //println!("猴子1号，你好！");
 
     polyhal::common::init(&PageAllocImpl);
-    get_mem_areas().cloned().for_each(|(start, size)| {
-        info!("memory area: {:#x} - {:#x}", start, start + size);
-        runtime::frame::add_frame_map(start, start + size);
-    });
+    // If no DTB is present, fall back to manual LMB memory map
+    let areas: alloc::vec::Vec<(usize, usize)> = get_mem_areas().cloned().collect();
+    if areas.is_empty() {
+        info!("no DTB memory areas; using manual LMB memory map");
+
+        // LMB memory regions (virtual addresses with VIRT_ADDR_START)
+        let memory: &[(usize, usize)] = &[
+            (0x9000_0000_0000_0000usize, 0x1000_0000usize), // 256MB
+            (0x9000_0000_9000_0000usize, 0x3000_0000usize), // 768MB
+        ];
+        // LMB reserved regions (must be excluded)
+        let reserved: &[(usize, usize)] = &[
+            (0x9000_0000_0cbf_4c30usize, 0x0200_b3d0usize),
+            (0x9000_0000_0f00_0000usize, 0x0100_0000usize),
+        ];
+
+        for &(vstart, size) in memory {
+            let mut ranges: alloc::vec::Vec<(usize, usize)> = alloc::vec![(vstart, vstart + size)];
+            for &(rs, rsz) in reserved {
+                let re = rs + rsz;
+                ranges = ranges
+                    .into_iter()
+                    .flat_map(|(s, e)| {
+                        // no overlap
+                        if re <= s || rs >= e {
+                            alloc::vec![(s, e)]
+                        } else {
+                            // cut the overlapped part, keep left/right
+                            let mut out = alloc::vec::Vec::new();
+                            if rs > s {
+                                out.push((s, rs));
+                            }
+                            if re < e {
+                                out.push((re, e));
+                            }
+                            out
+                        }
+                    })
+                    .collect();
+            }
+            for (s, e) in ranges {
+                info!("memory area (fallback): {:#x} - {:#x}", s, e);
+                runtime::frame::add_frame_map(s, e);
+            }
+        }
+    } else {
+        for (start, size) in areas {
+            info!("memory area: {:#x} - {:#x}", start, start + size);
+            runtime::frame::add_frame_map(start, start + size);
+        }
+    }
 
     println!("run kernel @ hart {}", hart_id);
     //println!("猴子1号，你好！");

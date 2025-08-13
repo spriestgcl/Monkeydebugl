@@ -38,8 +38,8 @@ fn ahci_platform_delay_us(us: u32) {
 
 /// AHCI初始化函数
 pub fn ahci_init(ahci_dev: &mut ahci_device) -> i32 {
-    // AHCI控制器寄存器物理基地址是0x400e0000
-    ahci_dev.mmio_base = ahci_phys_to_uncached(0x400e0000);
+    // 通过平台函数获取物理基址，便于移植/调整
+    ahci_dev.mmio_base = ahci_phys_to_uncached(super::platform::ahci_mmio_phys_base());
     
     ahci_debug_print(&alloc::format!("AHCI: Initializing controller at physical 0x400e0000, virtual 0x{:x}", 
           ahci_dev.mmio_base));
@@ -91,6 +91,11 @@ fn ahci_host_init(ahci_dev: &mut ahci_device) -> i32 {
     
     ahci_debug_print(&alloc::format!("AHCI: CAP=0x{:x}, CAP2=0x{:x}, VERSION=0x{:x}, PORT_MAP=0x{:x}",
           ahci_dev.cap, ahci_dev.cap2, ahci_dev.version, ahci_dev.port_map));
+
+    // 基本有效性检查：若寄存器读为0或全1，认为基址不正确
+    if ahci_dev.version == 0 || ahci_dev.version == 0xFFFF_FFFF {
+        return -1;
+    }
 
     // 启用AHCI模式
     let mut ghc = ahci_readl(mmio_base + 0x04); // HOST_CTL

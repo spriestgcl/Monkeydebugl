@@ -507,8 +507,6 @@ checksum = "e0a7ae3ac2f1173085d398531c705756c94a4c56843785df85a60c1a0afac116"
 [[package]]
 name = "polyhal"
 version = "0.2.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c4f34837744a59676f7c502abe54f2e75466f6b31d45429cd02d4f270ea033d2"
 dependencies = [
  "aarch64-cpu",
  "acpi",
