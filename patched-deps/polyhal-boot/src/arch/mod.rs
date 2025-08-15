@@ -68,19 +68,21 @@ fn call_real_main(hartid: usize) {
 
         const SP_SIZE: usize = 0x40_0000;
 
-        // (0..get_cpu_num()).for_each(|x| unsafe {
-        //     if x == hartid {
-        //         return;
-        //     }
-        //     // 调试输出: 启动其他核心
-        //     unsafe {
-        //         debug_uart_char(b'a');
-        //     } // 'a' - boot Another core
+        // Single-core boot: get_cpu_num() is hard-coded to 1
+        // This loop will only iterate once (core 0) and immediately return
+        (0..get_cpu_num()).for_each(|x| unsafe {
+            if x == hartid {
+                return;
+            }
+            // 调试输出: 启动其他核心
+            unsafe {
+                debug_uart_char(b'a');
+            } // 'a' - boot Another core
 
-        //     let stack_top = polyhal::mem::alloc(SP_SIZE).add(SP_SIZE);
-        //     println!("Boot Core: {}   {:#p}", x, stack_top);
-        //     polyhal::multicore::boot_core(x, _secondary_start as usize, stack_top as usize);
-        // });
+            let stack_top = polyhal::mem::alloc(SP_SIZE).add(SP_SIZE);
+            println!("Boot Core: {}   {:#p}", x, stack_top);
+            polyhal::multicore::boot_core(x, _secondary_start as usize, stack_top as usize);
+        });
 
         // 调试输出: 多核启动完成
         unsafe {

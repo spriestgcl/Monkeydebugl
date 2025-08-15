@@ -47,61 +47,8 @@ pub async fn handle_net() {
 }
 
 pub fn init() {
-    // 使用直接UART输出进行调试
-    unsafe fn debug_uart_char(c: u8) {
-        let uart_base = 0x800000001fe20000 as *mut u8;
-        let lsr_offset = 5;
-        let lsr_addr = uart_base.add(lsr_offset);
-        while (lsr_addr.read_volatile() & 0x20) == 0 {}
-        uart_base.write_volatile(c);
-        for _ in 0..1000 {
-            core::hint::spin_loop();
-        }
-    }
-
-    unsafe fn debug_uart_string(s: &str) {
-        for byte in s.bytes() {
-            debug_uart_char(byte);
-            if byte == b'\n' {
-                for _ in 0..2000 {
-                    core::hint::spin_loop();
-                }
-            }
-        }
-    }
-
-    unsafe {
-        debug_uart_string("Tasks init: Starting executor initialization...\r\n");
-    }
-
-    // 直接使用硬编码的CPU数量，避免调用get_cpu_num()
-    let cpu_count = 1;
-
-    unsafe {
-        debug_uart_string("Tasks init: Using hardcoded CPU count: 1\r\n");
-    }
-
-    unsafe {
-        debug_uart_string("Tasks init: About to initialize DEFAULT_EXECUTOR...\r\n");
-    }
-
-    DEFAULT_EXECUTOR.init(cpu_count);
-
-    unsafe {
-        debug_uart_string("Tasks init: Executor initialized successfully\r\n");
-    }
-
-    unsafe {
-        debug_uart_string("Tasks init: Spawning initproc task...\r\n");
-    }
-
+    DEFAULT_EXECUTOR.init(get_cpu_num());
     thread::spawn_blank(initproc());
-
-    unsafe {
-        debug_uart_string("Tasks init: initproc task spawned successfully\r\n");
-        debug_uart_string("Tasks init: Function completed\r\n");
-    }
-
     // #[cfg(feature = "net")]
     // thread::spawn_blank(KernelTask::new(handle_net()));
 }

@@ -51,7 +51,7 @@ pub struct ProcessControlBlock {
     pub threads: Vec<Weak<UserTask>>,
     pub exit_code: Option<usize>,
     pub exit_signal: Option<usize>, // 如果进程被信号杀死，记录信号号
-    pub core_dumped: bool, // 如果进程产生了core dump
+    pub core_dumped: bool,          // 如果进程产生了core dump
     pub umask: usize,
 }
 
@@ -64,8 +64,8 @@ pub struct ThreadControlBlock {
     pub signal_queue: [usize; REAL_TIME_SIGNAL_NUM], // a queue for real time signals
     pub exit_signal: u8,
     pub thread_exit_code: Option<u32>,
-    pub robust_list_head: usize,    // 添加 robust list 头指针
-    pub robust_list_len: usize,     // 添加 robust list 长度
+    pub robust_list_head: usize, // 添加 robust list 头指针
+    pub robust_list_len: usize,  // 添加 robust list 长度
 }
 
 #[allow(dead_code)]
@@ -88,14 +88,25 @@ impl UserTask {
 
 impl UserTask {
     pub fn new(parent: Weak<UserTask>, work_dir: PathBuf) -> Arc<Self> {
+        info!("UserTask::new called with work_dir: {}", work_dir.path());
         let task_id = task_id_alloc();
+        info!("allocated task_id: {}", task_id);
         // initialize memset
+        info!("creating new MemSet");
         let memset = MemSet::new(vec![]);
+        info!("MemSet created successfully");
 
-        let curr_dir = File::open(work_dir, OpenFlags::O_DIRECTORY)
+        info!("opening work_dir as current directory: {}", work_dir.path());
+        let curr_dir = File::open(work_dir.clone(), OpenFlags::O_DIRECTORY)
             .map(Arc::new)
+            .map_err(|e| {
+                error!("failed to open work_dir {}: {:?}", work_dir.path(), e);
+                e
+            })
             .expect("dont' have the home dir");
+        info!("current directory opened successfully");
 
+        info!("creating ProcessControlBlock for task {}", task_id);
         let inner = ProcessControlBlock {
             memset,
             fd_table: FileTable::new(),
@@ -115,7 +126,9 @@ impl UserTask {
             threads: Vec::new(),
             umask: 0o022, // 默认umask值
         };
+        info!("ProcessControlBlock created for task {}", task_id);
 
+        info!("creating ThreadControlBlock for task {}", task_id);
         let tcb = RwLock::new(ThreadControlBlock {
             cx: TrapFrame::new(),
             sigmask: SigProcMask::new(),
@@ -125,19 +138,45 @@ impl UserTask {
             signal_queue: [0; REAL_TIME_SIGNAL_NUM],
             exit_signal: 0,
             thread_exit_code: Option::None,
-            robust_list_head: 0,            // 初始化为 0
-            robust_list_len: 0,             // 初始化为 0
+            robust_list_head: 0, // 初始化为 0
+            robust_list_len: 0,  // 初始化为 0
         });
+        info!("ThreadControlBlock created for task {}", task_id);
 
+        info!("allocating page table for task {}", task_id);
+        let page_table = Arc::new(PageTableWrapper::alloc());
+
+        // 验证页表根地址是否有效
+        let root_addr = page_table.root();
+        if root_addr.raw() == 0 {
+            panic!("Invalid page table root address: null pointer");
+        }
+
+        // 更宽松的地址范围检查，适应不同的内存布局
+        if root_addr.raw() > 0xFFFFFFFFFFFF {
+            warn!("Suspicious page table root address: {:#x}", root_addr.raw());
+        }
+
+        info!(
+            "page table allocated for task {} with root addr {:#x}",
+            task_id,
+            root_addr.raw()
+        );
+
+        info!("creating UserTask struct for task {}", task_id);
         let task = Arc::new(Self {
-            page_table: Arc::new(PageTableWrapper::alloc()),
+            page_table,
             task_id,
             process_id: task_id,
             parent: RwLock::new(parent),
             pcb: Arc::new(Mutex::new(inner)),
             tcb,
         });
+        info!("UserTask struct created for task {}", task_id);
+
+        info!("adding task {} to threads list", task_id);
         task.pcb.lock().threads.push(Arc::downgrade(&task));
+        info!("UserTask::new completed successfully for task {}", task_id);
         task
     }
 
@@ -157,122 +196,235 @@ impl UserTask {
     pub fn frame_alloc(&self, vaddr: VirtAddr, mtype: MemType, count: usize) -> Option<PhysAddr> {
         // 根据内存类型选择合适的权限
         let mapping_flags = match mtype {
-            MemType::Stack => MappingFlags::URWX,      // 栈需要读写执行权限
+            MemType::Stack => MappingFlags::URWX, // 栈需要读写执行权限
             MemType::CodeSection => MappingFlags::URWX, // 代码段默认读写执行（向后兼容，现已使用Mmap）
-            MemType::Mmap => MappingFlags::URWX,       // mmap区域默认读写执行
-            MemType::Shared => MappingFlags::URWX,     // 共享内存读写执行
-            MemType::ShareFile => MappingFlags::URW,   // 共享文件读写
+            MemType::Mmap => MappingFlags::URWX,        // mmap区域默认读写执行
+            MemType::Shared => MappingFlags::URWX,      // 共享内存读写执行
+            MemType::ShareFile => MappingFlags::URW,    // 共享文件读写
         };
-        
-        // 根据修复记忆，为MemType::Mmap的批量分配添加特殊策略和fallback机制
-        if mtype == MemType::Mmap && count > 1 {
-            // 对于批量MemType::Mmap分配，使用frame_alloc_much确保连续分配
+
+        // 改进的内存分配策略：严格保证连续性，避免分段分配破坏内存连续性
+        // 在loongarch架构下暂时禁用严格分配策略，避免兼容性问题
+        #[cfg(not(target_arch = "loongarch64"))]
+        if count > 1 {
+            // 记录分配请求的统计信息
+            if count > 16 {
+                let free_pages = runtime::frame::get_free_pages();
+                debug!(
+                    "Large allocation request: {} pages, current free pages: {}",
+                    count, free_pages
+                );
+            }
+
+            // 策略1: 尝试标准连续分配
             if let Some(trackers) = frame_alloc_much(count) {
-                let ppn = trackers[0].0;
-                // 手动构建连续的MapTrack
-                let map_trackers: Vec<_> = trackers
-                    .into_iter()
-                    .enumerate()
-                    .map(|(i, x)| {
-                        let vaddr_i = match vaddr.raw() == 0 {
-                            true => vaddr,
-                            false => va!(vaddr.raw() + i * PAGE_SIZE),
-                        };
-                        MapTrack {
-                            vaddr: vaddr_i,
-                            tracker: Arc::new(x),
-                            rwx: 0,
-                        }
-                    })
-                    .collect();
-                
-                // 映射到页表
-                if vaddr.raw() != 0 {
-                    map_trackers
-                        .iter()
-                        .filter(|x| x.vaddr.raw() != 0)
-                        .for_each(|x| self.map(x.tracker.0, x.vaddr, mapping_flags));
-                }
-                
-                // 添加到内存集合
-                let mut inner = self.pcb.lock();
-                inner.memset.push(MemArea {
+                return self.create_memory_area_from_trackers(
+                    trackers,
+                    vaddr,
                     mtype,
-                    mtrackers: map_trackers,
-                    file: None,
-                    offset: 0,
-                    start: vaddr.raw(),
-                    len: count * PAGE_SIZE,
-                });
-                return Some(ppn);
-            } else {
-                // fallback: 如果连续分配失败，尝试分段分配
-                warn!("Continuous allocation failed for {} pages, trying segmented allocation", count);
-                
-                // 尝试分段分配：将大的分配请求分解为较小的段
-                let mut allocated_trackers = Vec::new();
-                let mut remaining = count;
-                let mut current_vaddr = vaddr;
-                
-                while remaining > 0 {
-                    // 尝试分配当前剩余页数的一半，但至少1页，最多16页
-                    let segment_size = (remaining / 2).max(1).min(16);
-                    
-                    if let Some(trackers) = frame_alloc_much(segment_size) {
-                        for (i, tracker) in trackers.into_iter().enumerate() {
-                            let vaddr_i = if current_vaddr.raw() == 0 {
-                                current_vaddr
-                            } else {
-                                va!(current_vaddr.raw() + i * PAGE_SIZE)
-                            };
-                            
-                            allocated_trackers.push(MapTrack {
-                                vaddr: vaddr_i,
-                                tracker: Arc::new(tracker),
-                                rwx: 0,
-                            });
-                        }
-                        
-                        remaining -= segment_size;
-                        if current_vaddr.raw() != 0 {
-                            current_vaddr = va!(current_vaddr.raw() + segment_size * PAGE_SIZE);
-                        }
-                    } else {
-                        // 如果连分段分配也失败，释放已分配的内存并返回None
-                        warn!("Segmented allocation also failed, releasing {} allocated pages", allocated_trackers.len());
-                        return None;
-                    }
-                }
-                
-                if !allocated_trackers.is_empty() {
-                    let ppn = allocated_trackers[0].tracker.0;
-                    
-                    // 映射到页表
-                    if vaddr.raw() != 0 {
-                        allocated_trackers
-                            .iter()
-                            .filter(|x| x.vaddr.raw() != 0)
-                            .for_each(|x| self.map(x.tracker.0, x.vaddr, mapping_flags));
-                    }
-                    
-                    // 添加到内存集合
-                    let mut inner = self.pcb.lock();
-                    inner.memset.push(MemArea {
+                    mapping_flags,
+                    count,
+                );
+            }
+
+            // 策略2: 对于大块分配（超过32页），再次尝试连续分配
+            if count >= 32 {
+                debug!(
+                    "Large allocation request: {} pages, retrying continuous allocation",
+                    count
+                );
+                // 这里可以添加更复杂的大块分配策略，目前先重试一次
+                if let Some(trackers) = frame_alloc_much(count) {
+                    return self.create_memory_area_from_trackers(
+                        trackers,
+                        vaddr,
                         mtype,
-                        mtrackers: allocated_trackers,
-                        file: None,
-                        offset: 0,
-                        start: vaddr.raw(),
-                        len: count * PAGE_SIZE,
-                    });
-                    
-                    info!("Successfully allocated {} pages using segmented allocation", count);
-                    return Some(ppn);
+                        mapping_flags,
+                        count,
+                    );
                 }
             }
+
+            // 对于关键的内存类型（如Mmap用于堆），严格要求连续性
+            // 但对于单页分配（如TLS），允许fallback到其他分配策略
+            if mtype == MemType::Mmap && count > 1 {
+                warn!("Failed to allocate {} continuous pages for heap (MemType::Mmap), refusing segmented allocation to maintain heap integrity", count);
+                return None; // 拒绝分段分配，保证堆的连续性
+            }
+
+            // 对于其他类型，在严格模式下也拒绝分段分配
+            if count >= 8 {
+                // 对于8页以上的分配，严格要求连续性
+                warn!("Failed to allocate {} continuous pages, refusing segmented allocation to maintain memory integrity", count);
+                return None;
+            }
+
+            // 只有在小块分配且非关键内存类型时，才允许有限的分段分配
+            warn!(
+                "Attempting limited segmented allocation for {} pages (non-critical memory type)",
+                count
+            );
+            if let Some(ppn) =
+                self.try_limited_segmented_allocation(vaddr, mtype, count, mapping_flags)
+            {
+                return Some(ppn);
+            }
+
+            // 所有策略都失败
+            warn!("All allocation strategies failed for {} pages", count);
+            return None;
         }
-        
-        self.map_frames(vaddr, mtype, count, None, 0, vaddr.raw(), count * PAGE_SIZE, mapping_flags)
+
+        self.map_frames(
+            vaddr,
+            mtype,
+            count,
+            None,
+            0,
+            vaddr.raw(),
+            count * PAGE_SIZE,
+            mapping_flags,
+        )
+    }
+
+    /// 从trackers创建内存区域的辅助函数
+    fn create_memory_area_from_trackers(
+        &self,
+        trackers: Vec<runtime::frame::FrameTracker>,
+        vaddr: VirtAddr,
+        mtype: MemType,
+        mapping_flags: MappingFlags,
+        count: usize,
+    ) -> Option<PhysAddr> {
+        let ppn = trackers[0].0;
+
+        // 构建MapTrack
+        let map_trackers: Vec<_> = trackers
+            .into_iter()
+            .enumerate()
+            .map(|(i, x)| {
+                let vaddr_i = match vaddr.raw() == 0 {
+                    true => vaddr,
+                    false => va!(vaddr.raw() + i * PAGE_SIZE),
+                };
+                MapTrack {
+                    vaddr: vaddr_i,
+                    tracker: Arc::new(x),
+                    rwx: 0,
+                }
+            })
+            .collect();
+
+        // 映射到页表
+        if vaddr.raw() != 0 {
+            map_trackers
+                .iter()
+                .filter(|x| x.vaddr.raw() != 0)
+                .for_each(|x| self.map(x.tracker.0, x.vaddr, mapping_flags));
+        }
+
+        // 添加到内存集合
+        let mut inner = self.pcb.lock();
+        inner.memset.push(MemArea {
+            mtype,
+            mtrackers: map_trackers,
+            file: None,
+            offset: 0,
+            start: vaddr.raw(),
+            len: count * PAGE_SIZE,
+        });
+
+        debug!("Successfully allocated {} continuous pages", count);
+        Some(ppn)
+    }
+
+    /// 有限的分段分配（仅用于非关键场景，最多分成2段）
+    fn try_limited_segmented_allocation(
+        &self,
+        vaddr: VirtAddr,
+        mtype: MemType,
+        count: usize,
+        mapping_flags: MappingFlags,
+    ) -> Option<PhysAddr> {
+        // 只允许最多分成2段，避免过度碎片化
+        let max_segments = 2;
+        let segment_size = count / max_segments;
+        let remainder = count % max_segments;
+
+        let mut allocated_trackers = Vec::new();
+        let mut current_vaddr = vaddr;
+
+        // 尝试分配第一段（包含余数）
+        if let Some(trackers) = frame_alloc_much(segment_size + remainder) {
+            for (i, tracker) in trackers.into_iter().enumerate() {
+                let vaddr_i = if current_vaddr.raw() == 0 {
+                    current_vaddr
+                } else {
+                    va!(current_vaddr.raw() + i * PAGE_SIZE)
+                };
+
+                allocated_trackers.push(MapTrack {
+                    vaddr: vaddr_i,
+                    tracker: Arc::new(tracker),
+                    rwx: 0,
+                });
+            }
+
+            if current_vaddr.raw() != 0 {
+                current_vaddr = va!(current_vaddr.raw() + (segment_size + remainder) * PAGE_SIZE);
+            }
+
+            // 尝试分配第二段
+            if segment_size > 0 {
+                if let Some(trackers) = frame_alloc_much(segment_size) {
+                    for (i, tracker) in trackers.into_iter().enumerate() {
+                        let vaddr_i = if current_vaddr.raw() == 0 {
+                            current_vaddr
+                        } else {
+                            va!(current_vaddr.raw() + i * PAGE_SIZE)
+                        };
+
+                        allocated_trackers.push(MapTrack {
+                            vaddr: vaddr_i,
+                            tracker: Arc::new(tracker),
+                            rwx: 0,
+                        });
+                    }
+                } else {
+                    warn!("Limited segmented allocation failed at second segment");
+                    return None;
+                }
+            }
+
+            let ppn = allocated_trackers[0].tracker.0;
+
+            // 映射到页表
+            if vaddr.raw() != 0 {
+                allocated_trackers
+                    .iter()
+                    .filter(|x| x.vaddr.raw() != 0)
+                    .for_each(|x| self.map(x.tracker.0, x.vaddr, mapping_flags));
+            }
+
+            // 添加到内存集合
+            let mut inner = self.pcb.lock();
+            inner.memset.push(MemArea {
+                mtype,
+                mtrackers: allocated_trackers,
+                file: None,
+                offset: 0,
+                start: vaddr.raw(),
+                len: count * PAGE_SIZE,
+            });
+
+            warn!(
+                "Limited segmented allocation successful: {} pages in {} segments",
+                count, max_segments
+            );
+            return Some(ppn);
+        }
+
+        None
     }
 
     pub fn map_frames(
@@ -354,12 +506,59 @@ impl UserTask {
     }
 
     pub fn sbrk(&self, addr: usize) -> usize {
-        let curr_page = self.pcb.lock().heap.div_ceil(PAGE_SIZE);
+        let curr_heap = self.pcb.lock().heap;
+        let curr_page = curr_heap.div_ceil(PAGE_SIZE);
         let after_page = addr.div_ceil(PAGE_SIZE);
-        // 如果需要申请内存，使用正确的MemType::Mmap而非CodeSection
-        (curr_page..after_page).for_each(|i| {
-            self.frame_alloc(va!(i * PAGE_SIZE), MemType::Mmap, 1);
-        });
+
+        if after_page > curr_page {
+            let pages_needed = after_page - curr_page;
+            let start_vaddr = va!(curr_page * PAGE_SIZE);
+
+            // 改进的sbrk：批量分配内存，严格要求连续性
+            // 在loongarch架构下使用传统的逐页分配方式
+            #[cfg(target_arch = "loongarch64")]
+            {
+                // 逐页分配，避免连续分配问题
+                for i in curr_page..after_page {
+                    if self
+                        .frame_alloc(va!(i * PAGE_SIZE), MemType::Mmap, 1)
+                        .is_none()
+                    {
+                        warn!("sbrk: Failed to allocate page {} for heap expansion", i);
+                        return curr_heap;
+                    }
+                }
+            }
+
+            #[cfg(not(target_arch = "loongarch64"))]
+            {
+                if pages_needed > 1 {
+                    // 对于多页分配，使用改进的frame_alloc，严格要求连续分配
+                    if self
+                        .frame_alloc(start_vaddr, MemType::Mmap, pages_needed)
+                        .is_none()
+                    {
+                        warn!(
+                            "sbrk: Failed to allocate {} continuous pages for heap expansion",
+                            pages_needed
+                        );
+                        return curr_heap; // 分配失败，返回当前堆大小，不扩展堆
+                    }
+                } else {
+                    // 单页分配
+                    if self.frame_alloc(start_vaddr, MemType::Mmap, 1).is_none() {
+                        warn!("sbrk: Failed to allocate single page for heap expansion");
+                        return curr_heap;
+                    }
+                }
+            }
+
+            debug!(
+                "sbrk: Successfully expanded heap from {:#x} to {:#x} ({} pages)",
+                curr_heap, addr, pages_needed
+            );
+        }
+
         self.pcb.lock().heap = addr;
         addr
     }
@@ -370,10 +569,18 @@ impl UserTask {
 
     #[inline]
     pub fn thread_exit(&self, exit_code: usize) {
-        warn!("Thread exit: task_id={}, process_id={}, exit_code={}, arch={}", 
-            self.task_id, self.process_id, exit_code,
-            if cfg!(target_arch = "loongarch64") { "loongarch64" } else { "other" });
-            
+        warn!(
+            "Thread exit: task_id={}, process_id={}, exit_code={}, arch={}",
+            self.task_id,
+            self.process_id,
+            exit_code,
+            if cfg!(target_arch = "loongarch64") {
+                "loongarch64"
+            } else {
+                "other"
+            }
+        );
+
         let mut tcb_writer = self.tcb.write();
         let uaddr = tcb_writer.clear_child_tid;
         if uaddr != 0 {
@@ -384,7 +591,10 @@ impl UserTask {
                 }
                 futex_wake(self.pcb.lock().futex_table.clone(), uaddr, 1);
             } else {
-                warn!("Failed to translate clear_child_tid address in thread_exit: {:#x}", uaddr);
+                warn!(
+                    "Failed to translate clear_child_tid address in thread_exit: {:#x}",
+                    uaddr
+                );
             }
         }
         tcb_writer.thread_exit_code = Some(exit_code as u32);
@@ -394,7 +604,7 @@ impl UserTask {
         // 改进的线程退出逻辑 - 不应该直接清理进程资源
         let should_cleanup_process = {
             let mut pcb = self.pcb.lock();
-            
+
             // 清理线程列表
             pcb.threads.retain(|weak_ref| {
                 if let Some(thread) = weak_ref.upgrade() {
@@ -403,16 +613,19 @@ impl UserTask {
                     false
                 }
             });
-            
+
             let remaining_threads = pcb.threads.len();
             let is_main_thread = self.task_id == self.process_id;
-            
+
             // 更保守的清理条件：只有主线程退出且没有其他活跃线程时才清理
             is_main_thread && remaining_threads == 0
         };
 
         if should_cleanup_process {
-            warn!("Thread exit triggering process cleanup for process_id={}", self.process_id);
+            warn!(
+                "Thread exit triggering process cleanup for process_id={}",
+                self.process_id
+            );
             let mut pcb = self.pcb.lock();
             pcb.memset.clear();
             pcb.fd_table.clear();
@@ -431,40 +644,53 @@ impl UserTask {
                 }
             }
         } else {
-            warn!("Thread exit: task_id={} exited, but process continues", self.task_id);
+            warn!(
+                "Thread exit: task_id={} exited, but process continues",
+                self.task_id
+            );
         }
     }
 
     #[inline]
     pub fn exit_with_signal(&self, signal: usize) {
         info!("Process {} terminated by signal {}", self.task_id, signal);
-        info!("LTP_SIGNAL_DEBUG: Process {} being terminated by signal {}", self.task_id, signal);
-        
+        info!(
+            "LTP_SIGNAL_DEBUG: Process {} being terminated by signal {}",
+            self.task_id, signal
+        );
+
         // 检查信号是否应该产生core dump
         let should_dump_core = match signal {
             3 | 4 | 5 | 6 | 8 | 10 | 11 => true, // SIGQUIT, SIGILL, SIGTRAP, SIGABRT, SIGFPE, SIGBUS, SIGSEGV
             _ => false,
         };
-        
+
         // 特别关注abort()相关的测试
-        if signal == 6 {  // SIGABRT/SIGIOT
+        if signal == 6 {
+            // SIGABRT/SIGIOT
             info!("LTP_ABORT_SIGNAL_DEBUG: abort() signal (SIGABRT/SIGIOT) received in process {}, will dump core: {}", 
                   self.task_id, should_dump_core);
         }
-        
+
         // 标记进程是被信号杀死的
         {
             let mut pcb = self.pcb.lock();
             pcb.exit_signal = Some(signal);
             pcb.exit_code = Some(0); // 被信号杀死时，退出码设为0
             pcb.core_dumped = should_dump_core;
-            
+
             if should_dump_core {
-                info!("Process {} will dump core due to signal {}", self.task_id, signal);
-                info!("LTP_CORE_DEBUG: Process {} will dump core due to signal {}", self.task_id, signal);
+                info!(
+                    "Process {} will dump core due to signal {}",
+                    self.task_id, signal
+                );
+                info!(
+                    "LTP_CORE_DEBUG: Process {} will dump core due to signal {}",
+                    self.task_id, signal
+                );
             }
         }
-        
+
         // 执行正常的退出清理
         self.exit(0);
     }
@@ -495,7 +721,7 @@ impl UserTask {
             // 禁用内存空隙填补逻辑 - 这会导致段错误
             // 这个逻辑创建了没有实际物理页面映射的内存区域
             // 当程序访问这些区域时会触发SIGSEGV
-            #[cfg(never)]  // 完全禁用这个逻辑
+            #[cfg(never)] // 完全禁用这个逻辑
             #[cfg(not(target_arch = "loongarch64"))]
             {
                 // 检查是否存在内存空隙，如果存在则填补
@@ -567,7 +793,7 @@ impl UserTask {
     pub fn thread_clone(self: Arc<Self>) -> Arc<Self> {
         let parent_tcb = self.tcb.read();
         let task_id = task_id_alloc();
-        
+
         let tcb = RwLock::new(ThreadControlBlock {
             cx: parent_tcb.cx.clone(),
             sigmask: parent_tcb.sigmask.clone(),
@@ -577,8 +803,8 @@ impl UserTask {
             signal_queue: [0; REAL_TIME_SIGNAL_NUM],
             exit_signal: 0,
             thread_exit_code: Option::None,
-            robust_list_head: 0,            // 新线程不继承父线程的 robust list
-            robust_list_len: 0,             // 新线程不继承父线程的 robust list
+            robust_list_head: 0, // 新线程不继承父线程的 robust list
+            robust_list_len: 0,  // 新线程不继承父线程的 robust list
         });
 
         tcb.write().cx[TrapFrameArgs::RET] = 0;
@@ -587,9 +813,9 @@ impl UserTask {
         let new_task = Arc::new(Self {
             page_table: self.page_table.clone(),
             task_id,
-            process_id: self.process_id,  // 重要：保持相同的process_id
+            process_id: self.process_id, // 重要：保持相同的process_id
             parent: RwLock::new(self.parent.read().clone()),
-            pcb: self.pcb.clone(),       // 重要：共享PCB
+            pcb: self.pcb.clone(), // 重要：共享PCB
             tcb,
         });
 
@@ -600,9 +826,13 @@ impl UserTask {
             pcb.threads.retain(|weak_ref| weak_ref.strong_count() > 0);
             // 添加新线程
             pcb.threads.push(Arc::downgrade(&new_task));
-            
-            warn!("Thread created: task_id={}, process_id={}, total_active_threads={}", 
-                new_task.task_id, new_task.process_id, pcb.threads.len());
+
+            warn!(
+                "Thread created: task_id={}, process_id={}, total_active_threads={}",
+                new_task.task_id,
+                new_task.process_id,
+                pcb.threads.len()
+            );
         }
 
         new_task
@@ -804,10 +1034,10 @@ impl UserTask {
     /// 简单的资源清理函数
     pub fn simple_cleanup(&self) {
         log::info!("Simple resource cleanup for task {}", self.task_id);
-        
+
         // 内存屏障
         core::sync::atomic::fence(core::sync::atomic::Ordering::SeqCst);
-        
+
         // 清理文件描述符
         {
             let mut pcb = self.pcb.lock();
@@ -817,19 +1047,22 @@ impl UserTask {
                 }
             }
         }
-        
+
         // 短暂等待
         for _ in 0..50000 {
             core::hint::spin_loop();
         }
-        
+
         log::info!("Simple cleanup completed for task {}", self.task_id);
     }
 }
 
 impl AsyncTask for UserTask {
     fn before_run(&self) {
+        info!("UserTask::before_run called for task {}", self.task_id);
+        info!("changing to page table for task {}", self.task_id);
         self.page_table.change();
+        info!("page table changed successfully for task {}", self.task_id);
     }
 
     fn get_task_id(&self) -> TaskId {
@@ -842,12 +1075,23 @@ impl AsyncTask for UserTask {
 
     #[inline]
     fn exit(&self, exit_code: usize) {
-        info!("LTP_EXIT_DEBUG: Process {} exiting with code {}", self.task_id, exit_code);
-        
-        warn!("Process exit: task_id={}, process_id={}, exit_code={}, arch={}", 
-            self.task_id, self.process_id, exit_code, 
-            if cfg!(target_arch = "loongarch64") { "loongarch64" } else { "other" });
-        
+        info!(
+            "LTP_EXIT_DEBUG: Process {} exiting with code {}",
+            self.task_id, exit_code
+        );
+
+        warn!(
+            "Process exit: task_id={}, process_id={}, exit_code={}, arch={}",
+            self.task_id,
+            self.process_id,
+            exit_code,
+            if cfg!(target_arch = "loongarch64") {
+                "loongarch64"
+            } else {
+                "other"
+            }
+        );
+
         let tcb_writer = self.tcb.write();
         let uaddr = tcb_writer.clear_child_tid;
         if uaddr != 0 {
@@ -861,16 +1105,16 @@ impl AsyncTask for UserTask {
                 warn!("Failed to translate clear_child_tid address: {:#x}", uaddr);
             }
         }
-        
+
         let exit_signal = tcb_writer.exit_signal;
         drop(tcb_writer);
-        
+
         // 改进的进程退出逻辑
         let should_cleanup_process = {
             let mut pcb = self.pcb.lock();
-            
+
             pcb.exit_code = Some(exit_code);
-            
+
             pcb.threads.retain(|weak_ref| {
                 if let Some(thread) = weak_ref.upgrade() {
                     thread.task_id != self.task_id
@@ -878,16 +1122,19 @@ impl AsyncTask for UserTask {
                     false
                 }
             });
-            
+
             let remaining_threads = pcb.threads.len();
             let is_main_thread = self.task_id == self.process_id;
-            
+
             // 只有主线程退出且没有其他线程时才清理
             is_main_thread && remaining_threads == 0
         };
 
         if should_cleanup_process {
-            warn!("Thread exit triggering process cleanup for process_id={}", self.process_id);
+            warn!(
+                "Thread exit triggering process cleanup for process_id={}",
+                self.process_id
+            );
             let mut pcb = self.pcb.lock();
             pcb.memset.clear();
             pcb.fd_table.clear();
@@ -906,7 +1153,10 @@ impl AsyncTask for UserTask {
                 }
             }
         } else {
-            warn!("Thread exit: task_id={} exited, but process continues", self.task_id);
+            warn!(
+                "Thread exit: task_id={} exited, but process continues",
+                self.task_id
+            );
         }
     }
 

@@ -19,11 +19,14 @@ pub fn init(page_alloc: &'static dyn PageAlloc) {
 }
 
 /// Store the number of cpu, this will fill up by startup function.
+/// Note: For single-core boot, this is not used anymore
+#[allow(dead_code)]
 pub(crate) static CPU_NUM: LazyInit<usize> = LazyInit::new();
 
 /// Get the number of cpus
+/// Hard-coded to 1 for single-core boot to avoid LazyInit initialization issues
 pub fn get_cpu_num() -> usize {
-    *CPU_NUM
+    1
 }
 
 /// alloc a persistent memory page

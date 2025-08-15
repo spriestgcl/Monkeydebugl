@@ -19,6 +19,8 @@ cfg_if::cfg_if! {
 
 use core::ops::Deref;
 
+use log::info;
+
 use crate::{components::common::frame_alloc, PhysAddr, VirtAddr};
 
 use super::common::frame_dealloc;
@@ -230,6 +232,7 @@ impl PageTable {
     /// [Page Table Wikipedia](https://en.wikipedia.org/wiki/Page_table).
     /// You don't need to care about this if you just want to use.
     pub fn release(&self) {
+        info!("into release");
         let drop_l2 = |pte_list: &[PTE]| {
             pte_list.iter().for_each(|x| {
                 if x.is_table() {
@@ -237,30 +240,82 @@ impl PageTable {
                 }
             });
         };
+        info!("into releasel3");            
         let drop_l3 = |pte_list: &[PTE]| {
+            info!("into drop l3");
             pte_list.iter().for_each(|x| {
+                info!("{}",x.0);
                 if x.is_table() {
-                    drop_l2(Self::get_pte_list(x.address()));
-                    frame_dealloc(x.address());
+                    let addr = x.address();
+                    info!("l2");
+                    info!("{}",addr);
+                    
+                    // 添加地址有效性检查
+                    if addr.raw() == 0 {
+                        log::warn!("Zero PTE address detected, skipping");
+                        return;
+                    }
+                    
+                    // 检查是否为全1的异常值
+                    if addr.raw() == 0xFFFFFFFFFFFF || addr.raw() > 0xFFFFFFFFFFFF {
+                        log::error!("Invalid PTE address detected: {:#x}, skipping", addr.raw());
+                        return;
+                    }
+                    
+                    // 更宽松的地址范围检查
+                    if addr.raw() > 0x1000000000 {  // 64GB上限
+                        log::error!("PTE address out of reasonable range: {:#x}, skipping", addr.raw());
+                        return;
+                    }
+                    
+                    drop_l2(Self::get_pte_list(addr));
+                    info!("dealloc");
+                    frame_dealloc(addr);
                 }
             });
         };
+        info!("into releasel4");            
         let drop_l4 = |pte_list: &[PTE]| {
             pte_list.iter().for_each(|x| {
                 if x.is_table() {
-                    drop_l3(Self::get_pte_list(x.address()));
-                    frame_dealloc(x.address());
+                    let addr = x.address();
+                    
+                    // 添加地址有效性检查
+                    if addr.raw() == 0 {
+                        log::warn!("Zero PTE address detected in L4, skipping");
+                        return;
+                    }
+                    
+                    // 检查是否为全1的异常值
+                    if addr.raw() == 0xFFFFFFFFFFFF || addr.raw() > 0xFFFFFFFFFFFF {
+                        log::error!("Invalid PTE address detected in L4: {:#x}, skipping", addr.raw());
+                        return;
+                    }
+                    
+                    // 更宽松的地址范围检查
+                    if addr.raw() > 0x1000000000 {  // 64GB上限
+                        log::error!("PTE address out of reasonable range in L4: {:#x}, skipping", addr.raw());
+                        return;
+                    }
+                    
+                    drop_l3(Self::get_pte_list(addr));
+                    frame_dealloc(addr);
                 }
             });
         };
 
+        info!("drop all");            
         // Drop all sub page table entry and clear root page.
         let pte_list = &mut Self::get_pte_list(self.0)[..Self::GLOBAL_ROOT_PTE_RANGE];
+        info!("go");            
         if Self::PAGE_LEVEL == 4 {
+            info!("drop l4");            
             drop_l4(pte_list);
         } else {
+            info!("drop l3");            
             drop_l3(pte_list);
         }
+        info!("fill");            
         pte_list.fill(PTE(0));
     }
 }
@@ -353,8 +408,12 @@ impl PageTableWrapper {
     /// This operation will copy kernel page table space from booting page table.
     #[inline]
     pub fn alloc() -> Self {
-        let pt = PageTable(frame_alloc());
+        let frame_addr = frame_alloc();
+        info!("[PageTable] Allocating new page table at: {:#x}", frame_addr.raw());
+        let pt = PageTable(frame_addr);
+        info!("[PageTable] About to call restore() for new page table");
         pt.restore();
+        info!("[PageTable] Page table allocation and restore completed");
         Self(pt)
     }
 }

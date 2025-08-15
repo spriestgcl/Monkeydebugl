@@ -52,6 +52,8 @@ fn call_real_main(hartid: usize) {
     if IS_BOOT.swap(false, Ordering::SeqCst) {
         const SP_SIZE: usize = 0x40_0000;
 
+        // Single-core boot: get_cpu_num() is hard-coded to 1
+        // This loop will only iterate once (core 0) and immediately return
         (0..get_cpu_num()).for_each(|x| unsafe {
             if x == hartid {
                 return;

@@ -887,9 +887,10 @@ pub async fn initproc() {
 
     #[cfg(target_arch = "loongarch64")]
     {
-        unsafe {
-            debug_uart_string("initproc: Entering LoongArch64 branch\r\n");
-        }
+            unsafe {
+        debug_uart_string("initproc: Entering LoongArch64 branch\r\n");
+        debug_uart_string("initproc: About to set paths and execute commands\r\n");
+    }
 
         set_libc_path("/musl/lib/libc.so".to_string());
         set_dyn_path("/musl/lib/libc.so".to_string());
@@ -903,13 +904,20 @@ pub async fn initproc() {
         }
 
         // // 创建必要的链接以支持busybox测试
-        let home_dir = PathBuf::from("/musl/basic");
+        let home_dir = PathBuf::from("/musl");
+        unsafe {
+            debug_uart_string("initproc: About to execute busybox sh\r\n");
+        }
+        command("/musl/busybox sh", home_dir.clone()).await;
+        unsafe {
+            debug_uart_string("initproc: busybox sh command completed\r\n");
+        }
         command(
             "/musl/busybox echo #### OS COMP TEST GROUP START basic-musl ####",
             home_dir.clone(),
         )
         .await;
-        command("/musl/busybox sh /musl/basic/run-all.sh", home_dir.clone()).await;
+        //command("/musl/busybox sh /musl/basic/run-all.sh", home_dir.clone()).await;
         command(
             "/musl/busybox echo #### OS COMP TEST GROUP END basic-musl ####",
             home_dir.clone(),

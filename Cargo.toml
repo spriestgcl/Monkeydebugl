@@ -62,6 +62,6 @@ syscalls = { git = "https://github.com/jasonwhite/syscalls.git", default-feature
 [patch.crates-io]
  polyhal = { path = "./vendor/polyhal" }
 # polyhal-boot = { path = "../polyhal/polyhal-boot" }
-# polyhal-trap = { path = "../polyhal/polyhal-trap" }
+ polyhal-trap = { path = "./vendor/polyhal-trap" }
 polyhal-boot = { path = "./patched-deps/polyhal-boot" }
 

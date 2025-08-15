@@ -1,12 +1,13 @@
-use loongArch64::register::pgdl;
-
 use super::{MappingFlags, PageTable, PTE, TLB};
 use crate::{PhysAddr, VirtAddr};
+use log::info;
+use loongArch64::register::pgdl;
 
 impl PTE {
     #[inline]
     pub const fn is_valid(&self) -> bool {
-        self.0 != 0
+        // 更严格的有效性检查
+        self.flags().contains(PTEFlags::V) && self.0 > 0 && self.0 != usize::MAX
     }
 
     #[inline]
@@ -16,17 +17,50 @@ impl PTE {
 
     #[inline]
     pub fn address(&self) -> PhysAddr {
-        PhysAddr::new((self.0) & 0xffff_ffff_f000)
+        let addr = (self.0) & 0xffff_ffff_f000;
+
+        // 添加地址有效性检查（参考RISC-V最新版本）
+        if self.0 == 0 {
+            return PhysAddr::new(0);
+        }
+
+        // 检查PTE值是否在合理范围内（LoongArch64适配）
+        if self.0 > 0xFFFFF_FFFFF_FFF {
+            // LoongArch64的地址范围
+            log::warn!(
+                "[LoongArch64] Suspicious PTE value: {:#x}, calculated addr: {:#x}",
+                self.0,
+                addr
+            );
+        }
+
+        PhysAddr::new(addr)
     }
 
     #[inline]
     pub fn is_table(&self) -> bool {
-        self.0 != 0
+        // 参考RISC-V最新版本的安全检查
+        // 检查是否为异常值（全1或全0）
+        if self.0 == 0 || self.0 == usize::MAX {
+            return false;
+        }
+
+        // 检查PTE值是否在合理范围内（LoongArch64适配）
+        if self.0 > 0xFFFFF_FFFFF_FFF {
+            log::warn!(
+                "[LoongArch64] PTE value out of range in is_table(): {:#x}",
+                self.0
+            );
+            return false;
+        }
+
+        // LoongArch64的页表项有效性检查
+        self.flags().contains(PTEFlags::V)
     }
 
     #[inline]
     pub(crate) fn new_table(paddr: PhysAddr) -> Self {
-        Self(paddr.raw())
+        Self(paddr.raw() | PTEFlags::V.bits())
     }
 
     #[inline]
@@ -37,19 +71,27 @@ impl PTE {
 
 impl From<MappingFlags> for PTEFlags {
     fn from(value: MappingFlags) -> Self {
-        let mut flags = PTEFlags::V;
-        if value.contains(MappingFlags::W) {
-            flags |= PTEFlags::W | PTEFlags::D;
-        }
+        // 参考RISC-V最新版本的转换逻辑
+        if value.is_empty() {
+            Self::empty()
+        } else {
+            let mut flags = PTEFlags::V;
 
-        // if !value.contains(MappingFlags::X) {
-        //     flags |= PTEFlags::NX;
-        // }
+            // LoongArch64特定的标志位设置
+            if value.contains(MappingFlags::W) {
+                flags |= PTEFlags::W | PTEFlags::D;
+            }
 
-        if value.contains(MappingFlags::U) {
-            flags |= PTEFlags::PLV_USER;
+            // 如果需要用户权限
+            if value.contains(MappingFlags::U) {
+                flags |= PTEFlags::PLV_USER;
+            }
+
+            // LoongArch64默认设置P标志（页面存在）
+            flags |= PTEFlags::P;
+
+            flags
         }
-        flags
     }
 }
 
@@ -120,9 +162,28 @@ impl PageTable {
 
     #[inline]
     pub fn restore(&self) {
+        // 采用RISC-V最新版本的安全三步策略
+        info!(
+            "[LoongArch64] PageTable restore started, root: {:#x}",
+            self.0.raw()
+        );
+
+        // 第一步：先清空用户空间部分，避免release()处理异常数据
+        let arr = Self::get_pte_list(self.0);
+        arr[0..Self::GLOBAL_ROOT_PTE_RANGE].fill(PTE(0));
+
+        // 第二步：现在安全地调用release()，用户空间已经是干净的
         self.release();
 
+        // 第三步：复制内核页表并再次清理用户空间
+        let kernel_arr = Self::get_pte_list(Self::current().0);
+        let arr = Self::get_pte_list(self.0);
+        arr[Self::GLOBAL_ROOT_PTE_RANGE..]
+            .copy_from_slice(&kernel_arr[Self::GLOBAL_ROOT_PTE_RANGE..]);
+        arr[0..Self::GLOBAL_ROOT_PTE_RANGE].fill(PTE(0));
+
         TLB::flush_all();
+        info!("[LoongArch64] PageTable restore completed");
     }
 
     #[inline]
