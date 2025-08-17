@@ -63,8 +63,7 @@ impl KernelDevOp for Ext4DiskWrapper {
             let mut block_buf = [0u8; BLOCK_SIZE];
             bdev.read_blocks(blk_id, &mut block_buf);
             let can = core::cmp::min(BLOCK_SIZE - off_in_block, buf.len());
-            block_buf[off_in_block..off_in_block + can]
-                .copy_from_slice(&buf[..can]);
+            block_buf[off_in_block..off_in_block + can].copy_from_slice(&buf[..can]);
             bdev.write_blocks(blk_id, &block_buf);
             // verify
             let mut verify = [0u8; BLOCK_SIZE];
@@ -360,14 +359,16 @@ impl INodeInterface for Ext4FileWrapper {
             const ZERO_FILL_THRESHOLD: usize = 1 << 20; // 1 MiB
             if gap <= ZERO_FILL_THRESHOLD {
                 // 小间隙：物理写入零，保证读回为0
-                file.file_seek(current_size as i64, 0).map_err(map_ext4_err)?;
+                file.file_seek(current_size as i64, 0)
+                    .map_err(map_ext4_err)?;
                 // 分块写入，避免一次性分配过大缓冲
                 const CHUNK: usize = 64 * 1024;
                 let mut remain = gap;
                 let mut zero_chunk = [0u8; CHUNK];
                 while remain > 0 {
                     let to_write = core::cmp::min(CHUNK, remain);
-                    file.file_write(&zero_chunk[..to_write]).map_err(map_ext4_err)?;
+                    file.file_write(&zero_chunk[..to_write])
+                        .map_err(map_ext4_err)?;
                     remain -= to_write;
                 }
                 // 确保零填充数据落盘
@@ -387,19 +388,23 @@ impl INodeInterface for Ext4FileWrapper {
         while written < buffer.len() {
             let remain = buffer.len() - written;
             let chunk = core::cmp::min(PAGE, remain);
-            log::error!("ext4_shim::writeat page off={} len={}", offset + written, chunk);
+            // log::error!("ext4_shim::writeat page off={} len={}", offset + written, chunk);
             let mut done = 0;
             while done < chunk {
                 let w = file
                     .file_write(&buffer[written + done..written + chunk])
                     .map_err(map_ext4_err)?;
-                if w == 0 { break; }
+                if w == 0 {
+                    break;
+                }
                 done += w;
             }
             // 每页刷一次缓存，避免后续读到旧数据
             let _ = file.file_cache_flush();
             written += done;
-            if done < chunk { break; }
+            if done < chunk {
+                break;
+            }
         }
         // 写入后确保缓存刷新
         let _ = file.file_cache_flush();
