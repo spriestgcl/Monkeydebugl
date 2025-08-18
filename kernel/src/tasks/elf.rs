@@ -106,27 +106,36 @@ pub fn init_task_stack(
     ph_addr: usize,
     heap_bottom: usize,
 ) {
+    info!("STACK_DEBUG: Initializing task stack for task {}", user_task.get_task_id());
+    info!("STACK_DEBUG: Stack top: {:#x}, size: {:#x}", USER_STACK_TOP, USER_STACK_INIT_SIZE);
+    
     // map stack
+    info!("STACK_DEBUG: Allocating stack pages");
     user_task.frame_alloc(
         va!(USER_STACK_TOP - USER_STACK_INIT_SIZE),
         MemType::Stack,
         USER_STACK_INIT_SIZE / PAGE_SIZE,
     );
+    info!("STACK_DEBUG: Stack pages allocated");
     log::debug!(
         "[task {}] entry: {:#x}",
         user_task.get_task_id(),
         base + entry_point
     );
+    info!("STACK_DEBUG: Setting heap and entry point");
     user_task.inner_map(|inner| {
         inner.heap = heap_bottom;
         inner.entry = base + entry_point;
     });
+    info!("STACK_DEBUG: Heap: {:#x}, Entry: {:#x}", heap_bottom, base + entry_point);
 
+    info!("STACK_DEBUG: Creating trap frame");
     let mut tcb = user_task.tcb.write();
 
     tcb.cx = TrapFrame::new();
     tcb.cx[TrapFrameArgs::SP] = USER_STACK_TOP; // stack top;
     tcb.cx[TrapFrameArgs::SEPC] = base + entry_point;
+    info!("STACK_DEBUG: Trap frame created: SP={:#x}, SEPC={:#x}", USER_STACK_TOP, base + entry_point);
 
     drop(tcb);
 
@@ -151,7 +160,16 @@ pub fn init_task_stack(
 
     let random_ptr = user_task.push_arr(&[0u8; 16]);
     let mut auxv = BTreeMap::new();
+    // 根据架构设置正确的平台字符串
+    #[cfg(target_arch = "loongarch64")]
+    auxv.insert(elf::AT_PLATFORM, user_task.push_str("loongarch64"));
+    #[cfg(target_arch = "riscv64")]
     auxv.insert(elf::AT_PLATFORM, user_task.push_str("riscv"));
+    #[cfg(target_arch = "aarch64")]
+    auxv.insert(elf::AT_PLATFORM, user_task.push_str("aarch64"));
+    #[cfg(target_arch = "x86_64")]
+    auxv.insert(elf::AT_PLATFORM, user_task.push_str("x86_64"));
+    
     auxv.insert(elf::AT_EXECFN, user_task.push_str(path));
     auxv.insert(elf::AT_PHNUM, ph_count);
     auxv.insert(elf::AT_PAGESZ, PAGE_SIZE);
@@ -182,4 +200,5 @@ pub fn init_task_stack(
         user_task.push_num(*x);
     });
     user_task.push_num(args.len());
+    info!("STACK_DEBUG: Task stack initialization completed for task {}", user_task.get_task_id());
 }

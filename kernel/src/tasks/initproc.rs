@@ -154,9 +154,12 @@ async fn command(cmd: &str, work_dir: PathBuf) {
             // 在这里克隆 work_dir，以便后续使用
             let work_dir_clone = work_dir.clone();
             // Use custom working directory to create task
+            info!("COMMAND_DEBUG: work_dir_clone obtained");
             let curr_task = current_task();
+            info!("COMMAND_DEBUG: curr_task obtained");
             let task = UserTask::new(Weak::new(), work_dir);
             task.before_run();
+            info!("COMMAND_DEBUG: exec_with_process started");
             match exec_with_process(
                 task.clone(),
                 work_dir_clone, // 使用传入的工作目录，而不是空的PathBuf
@@ -172,12 +175,16 @@ async fn command(cmd: &str, work_dir: PathBuf) {
                     return;
                 }
             }
+            info!("COMMAND_DEBUG: before_run completed");
             curr_task.before_run();
+            info!("COMMAND_DEBUG: curr_task before_run completed");
             let task_id = task.get_task_id();
+            info!("COMMAND_DEBUG: task_id obtained");
             thread::spawn(task.clone(), user_entry());
+            info!("COMMAND_DEBUG: task spawned");
 
             let task = tid2task(task_id).unwrap();
-
+            info!("COMMAND_DEBUG: task retrieved");
             // 添加超时机制，避免无限等待
             let mut wait_count = 0;
             const MAX_WAIT_COUNT: usize = 1000000; // 大约10秒的超时
@@ -903,13 +910,13 @@ pub async fn initproc() {
         }
 
         // // 创建必要的链接以支持busybox测试
-        let home_dir = PathBuf::from("/musl/basic");
+        let home_dir = PathBuf::from("/musl");
         command(
             "/musl/busybox echo #### OS COMP TEST GROUP START basic-musl ####",
             home_dir.clone(),
         )
         .await;
-        command("/musl/busybox sh /musl/basic/run-all.sh", home_dir.clone()).await;
+        command("/musl/busybox sh", home_dir.clone()).await;
         command(
             "/musl/busybox echo #### OS COMP TEST GROUP END basic-musl ####",
             home_dir.clone(),

@@ -7,6 +7,10 @@ pub const USER_WORK_DIR: PathBuf = PathBuf::new();
 pub const USER_DYN_ADDR: usize = 0x20000000;
 
 /// 用户态栈顶
+/// LoongArch: 使用39位地址空间，用户空间最大为 0x7F_FFFF_FFFF
+#[cfg(target_arch = "loongarch64")]
+pub const USER_STACK_TOP: usize = 0x7000_0000;
+#[cfg(not(target_arch = "loongarch64"))]
 pub const USER_STACK_TOP: usize = 0x8000_0000;
 
 /// 用户栈初始大小

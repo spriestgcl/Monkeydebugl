@@ -1,6 +1,5 @@
 use core::fmt::{self, Write};
 use core::sync::atomic::{AtomicBool, Ordering};
-use devices::utils::puts;
 use log::{Level, LevelFilter, Log, Metadata, Record};
 
 static LOGGER_BUSY: AtomicBool = AtomicBool::new(false);

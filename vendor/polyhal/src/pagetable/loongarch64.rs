@@ -6,7 +6,8 @@ use crate::{PhysAddr, VirtAddr};
 impl PTE {
     #[inline]
     pub const fn is_valid(&self) -> bool {
-        self.0 != 0
+        // 检查V位(Valid)和P位(Page is existing)是否都设置
+        self.0 != 0 && (self.0 & (PTEFlags::V.bits() | PTEFlags::P.bits())) == (PTEFlags::V.bits() | PTEFlags::P.bits())
     }
 
     #[inline]
@@ -21,12 +22,16 @@ impl PTE {
 
     #[inline]
     pub fn is_table(&self) -> bool {
-        self.0 != 0
+        // 页表项必须设置V位和P位，但不能设置W位(写位)
+        self.0 != 0 && 
+        (self.0 & (PTEFlags::V.bits() | PTEFlags::P.bits())) == (PTEFlags::V.bits() | PTEFlags::P.bits()) &&
+        (self.0 & PTEFlags::W.bits()) == 0
     }
 
     #[inline]
     pub(crate) fn new_table(paddr: PhysAddr) -> Self {
-        Self(paddr.raw())
+        // 页表项必须设置V位(Valid)和P位(Page is existing)
+        Self(paddr.raw() | PTEFlags::V.bits() | PTEFlags::P.bits())
     }
 
     #[inline]
@@ -37,7 +42,14 @@ impl PTE {
 
 impl From<MappingFlags> for PTEFlags {
     fn from(value: MappingFlags) -> Self {
-        let mut flags = PTEFlags::V;
+        // 必须设置V位(Valid)和P位(Page is existing)
+        let mut flags = PTEFlags::V | PTEFlags::P;
+        
+        // 对于用户空间访问，必须设置MAT_NOCACHE位
+        if value.contains(MappingFlags::U) {
+            flags |= PTEFlags::MAT_NOCACHE | PTEFlags::PLV_USER;
+        }
+        
         if value.contains(MappingFlags::W) {
             flags |= PTEFlags::W | PTEFlags::D;
         }
@@ -46,9 +58,6 @@ impl From<MappingFlags> for PTEFlags {
         //     flags |= PTEFlags::NX;
         // }
 
-        if value.contains(MappingFlags::U) {
-            flags |= PTEFlags::PLV_USER;
-        }
         flags
     }
 }

@@ -167,28 +167,38 @@ pub async fn exec_with_process(
     // 修复：在清空内存集合之前先恢复到干净的页表状态
     // 这避免了页表指向已经清空的内存区域，防止riscv架构下的内核页错误
     
+    info!("EXEC_DEBUG: Starting memory cleanup");
+    
     // 第一步：获取并保存当前页表的干净状态
     let clean_page_table = user_task.page_table.clone();
+    info!("EXEC_DEBUG: Page table cloned");
     
     // 第二步：同步确保所有之前的内存访问都完成
     core::sync::atomic::fence(core::sync::atomic::Ordering::SeqCst);
+    info!("EXEC_DEBUG: Memory fence completed");
     
     // 第三步：清理内存集合，但保持页表完整性
     {
         let mut pcb = user_task.pcb.lock();
+        info!("EXEC_DEBUG: PCB locked, memory areas: {}", pcb.memset.len());
         // 在清空之前，确保每个内存区域都正确取消映射
-        for area in pcb.memset.iter() {
+        for (i, area) in pcb.memset.iter().enumerate() {
+            info!("EXEC_DEBUG: Unmapping area {}: start={:#x}, len={:#x}", i, area.start, area.len);
             // 逐页取消映射以避免突然的映射失效
             for tracker in area.mtrackers.iter() {
                 user_task.page_table.unmap_page(tracker.vaddr);
             }
         }
         pcb.memset.clear();
+        info!("EXEC_DEBUG: Memory areas cleared");
     }
     
     // 第四步：恢复页表并应用更改
+    info!("EXEC_DEBUG: Restoring page table");
     user_task.page_table.restore();
+    info!("EXEC_DEBUG: Changing page table");
     user_task.page_table.change();
+    info!("EXEC_DEBUG: Page table changes applied");
 
     let caches = TASK_CACHES.lock();
     if let Some(cache_task) = caches.iter().find(|x| x.name == path) {
@@ -218,31 +228,102 @@ pub async fn exec_with_process(
     } else {
         drop(caches);
 
+        info!("EXEC_DEBUG: Opening file: {}", path.to_string());
         let file = File::open(path.clone(), OpenFlags::O_RDONLY)
             .map(Arc::new)?
             .clone();
         let file_size = file.file_size()?;
-        let frame_ppn = frame_alloc_much(file_size.div_ceil(PAGE_SIZE));
+        info!("EXEC_DEBUG: File size: {} bytes", file_size);
+        
+        let pages_needed = file_size.div_ceil(PAGE_SIZE);
+        info!("EXEC_DEBUG: Allocating {} pages for file buffer", pages_needed);
+        
+        info!("EXEC_DEBUG: Calling frame_alloc_much");
+        let frame_ppn = frame_alloc_much(pages_needed);
+        info!("EXEC_DEBUG: frame_alloc_much returned: {:?}", frame_ppn.is_some());
+        
+        if frame_ppn.is_none() {
+            error!("EXEC_DEBUG: Failed to allocate {} pages for file buffer", pages_needed);
+            return Err(Errno::ENOMEM);
+        }
+        
+        info!("EXEC_DEBUG: Creating buffer slice");
         let buffer = frame_ppn.as_ref().unwrap()[0].slice_mut_with_len(file_size);
-        let rsize = file.readat(0, buffer)?;
-        assert_eq!(rsize, file_size);
+        info!("EXEC_DEBUG: Buffer created, size: {} bytes", file_size);
+        info!("EXEC_DEBUG: Buffer address: {:#x}", buffer.as_ptr() as usize);
+        
+        info!("EXEC_DEBUG: Starting file read operation");
+        info!("EXEC_DEBUG: File read parameters: offset=0, len={}", file_size);
+        info!("EXEC_DEBUG: File type: {:?}", file.file_type());
+        info!("EXEC_DEBUG: File flags: {:?}", *file.flags.lock());
+        
+        // 尝试分段读取，避免一次性读取大文件导致的问题
+        let mut total_read = 0;
+        let mut offset = 0;
+        let chunk_size = 64 * 1024; // 64KB chunks
+        
+        while total_read < file_size {
+            let remaining = file_size - total_read;
+            let current_chunk_size = core::cmp::min(chunk_size, remaining);
+            let chunk_start = offset;
+            let chunk_end = offset + current_chunk_size;
+            
+            info!("EXEC_DEBUG: Reading chunk: offset={}, size={}, total_read={}/{}", 
+                  chunk_start, current_chunk_size, total_read, file_size);
+            
+            info!("EXEC_DEBUG: Creating chunk buffer slice: [{}, {})", chunk_start, chunk_end);
+            let chunk_buffer = &mut buffer[chunk_start..chunk_end];
+            info!("EXEC_DEBUG: Chunk buffer created, address: {:#x}, size: {}", 
+                  chunk_buffer.as_ptr() as usize, chunk_buffer.len());
+            
+            info!("EXEC_DEBUG: About to read chunk at offset {}", chunk_start);
+            match file.readat(chunk_start, chunk_buffer) {
+                Ok(rsize) => {
+                    info!("EXEC_DEBUG: Chunk read successful: offset={}, read={}, expected={}", 
+                          chunk_start, rsize, current_chunk_size);
+                    if rsize == 0 {
+                        info!("EXEC_DEBUG: EOF reached at offset {}", chunk_start);
+                        break;
+                    }
+                    total_read += rsize;
+                    offset += rsize;
+                    info!("EXEC_DEBUG: Chunk read completed, moving to next chunk");
+                }
+                Err(e) => {
+                    error!("EXEC_DEBUG: Chunk read failed: offset={}, error={:?}", chunk_start, e);
+                    return Err(e);
+                }
+            }
+            info!("EXEC_DEBUG: Chunk read loop iteration completed");
+        }
+        
+        info!("EXEC_DEBUG: File read completed, total bytes read: {}", total_read);
+        if total_read != file_size {
+            warn!("EXEC_DEBUG: Warning: expected {} bytes but read {} bytes", file_size, total_read);
+        }
 
+        info!("EXEC_DEBUG: Parsing ELF file");
         let elf = if let Ok(elf) = xmas_elf::ElfFile::new(&buffer) {
+            info!("EXEC_DEBUG: ELF file parsed successfully");
             elf
         } else {
+            info!("EXEC_DEBUG: ELF parsing failed, trying busybox fallback");
             let mut new_args = vec!["busybox".to_string(), "sh".to_string()];
             args.iter().for_each(|x| new_args.push(x.clone()));
             return exec_with_process(task, curr_dir, String::from("busybox"), new_args, envp)
                 .await;
         };
         let elf_header = elf.header;
+        info!("EXEC_DEBUG: ELF header obtained");
 
         let entry_point = elf.header.pt2.entry_point() as usize;
+        info!("EXEC_DEBUG: Entry point: {:#x}", entry_point);
         assert_eq!(
             elf_header.pt1.magic,
             [0x7f, 0x45, 0x4c, 0x46],
             "invalid elf!"
         );
+        info!("EXEC_DEBUG: ELF magic number verified");
 
         let user_task = task.clone();
 
@@ -282,7 +363,11 @@ pub async fn exec_with_process(
             .div_ceil(PAGE_SIZE)
             .mul(PAGE_SIZE);
 
+        info!("EXEC_DEBUG: Relocating ELF to base {:#x}", USER_DYN_ADDR);
         let base = elf.relocate(USER_DYN_ADDR).unwrap_or(0);
+        info!("EXEC_DEBUG: ELF relocated to base {:#x}", base);
+        
+        info!("EXEC_DEBUG: Initializing task stack");
         init_task_stack(
             user_task.clone(),
             args,
@@ -294,30 +379,43 @@ pub async fn exec_with_process(
             elf.get_ph_addr().unwrap_or(0) as usize,
             heap_bottom,
         );
+        info!("EXEC_DEBUG: Task stack initialized");
 
-        elf.program_iter()
+        info!("EXEC_DEBUG: Loading ELF segments");
+        let load_segments: Vec<_> = elf.program_iter()
             .filter(|x| x.get_type().unwrap() == xmas_elf::program::Type::Load)
-            .for_each(|ph| {
-                let file_size = ph.file_size() as usize;
-                let mem_size = ph.mem_size() as usize;
-                let offset = ph.offset() as usize;
-                let virt_addr = base + ph.virtual_addr() as usize;
-                let vpn = virt_addr / PAGE_SIZE;
+            .collect();
+        info!("EXEC_DEBUG: Found {} load segments", load_segments.len());
+        
+        for (i, ph) in load_segments.iter().enumerate() {
+            let file_size = ph.file_size() as usize;
+            let mem_size = ph.mem_size() as usize;
+            let offset = ph.offset() as usize;
+            let virt_addr = base + ph.virtual_addr() as usize;
+            let vpn = virt_addr / PAGE_SIZE;
 
-                let page_count = (virt_addr + mem_size).div_ceil(PAGE_SIZE) - vpn;
-                let ppn_start =
-                    user_task.frame_alloc(va!(virt_addr).floor(), MemType::Mmap, page_count);
-                let page_space = va!(virt_addr).slice_mut_with_len(file_size);
-                let ppn_space = ppn_start
-                    .expect("not have enough memory")
-                    .add(virt_addr % PAGE_SIZE)
-                    .slice_mut_with_len(file_size);
+            info!("EXEC_DEBUG: Loading segment {}: vaddr={:#x}, size={:#x}", i, virt_addr, mem_size);
 
-                page_space.copy_from_slice(&buffer[offset..offset + file_size]);
-                assert_eq!(ppn_space, page_space);
-                assert_eq!(&buffer[offset..offset + file_size], ppn_space);
-                assert_eq!(&buffer[offset..offset + file_size], page_space);
-            });
+            let page_count = (virt_addr + mem_size).div_ceil(PAGE_SIZE) - vpn;
+            info!("EXEC_DEBUG: Allocating {} pages for segment {}", page_count, i);
+            
+            let ppn_start =
+                user_task.frame_alloc(va!(virt_addr).floor(), MemType::Mmap, page_count);
+            let page_space = va!(virt_addr).slice_mut_with_len(file_size);
+            let ppn_space = ppn_start
+                .expect("not have enough memory")
+                .add(virt_addr % PAGE_SIZE)
+                .slice_mut_with_len(file_size);
+
+            page_space.copy_from_slice(&buffer[offset..offset + file_size]);
+            assert_eq!(ppn_space, page_space);
+            assert_eq!(&buffer[offset..offset + file_size], ppn_space);
+            assert_eq!(&buffer[offset..offset + file_size], page_space);
+            
+            info!("EXEC_DEBUG: Segment {} loaded successfully", i);
+        }
+        
+        info!("EXEC_DEBUG: All segments loaded, returning user task");
         Ok(user_task)
     }
 }

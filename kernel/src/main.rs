@@ -172,13 +172,11 @@ fn main(hart_id: usize) {
 
         // LMB memory regions (virtual addresses with VIRT_ADDR_START)
         let memory: &[(usize, usize)] = &[
-            (0x9000_0000_0000_0000usize, 0x1000_0000usize), // 256MB
-            (0x9000_0000_9000_0000usize, 0x3000_0000usize), // 768MB
+            (0x9000_0000_9800_0000usize, 0x2800_0000usize), // 640MB: 0x98000000-0xc0000000
         ];
         // LMB reserved regions (must be excluded)
         let reserved: &[(usize, usize)] = &[
-            (0x9000_0000_0cbf_4c30usize, 0x0200_b3d0usize),
-            (0x9000_0000_0f00_0000usize, 0x0100_0000usize),
+            // 移除之前的保留区域，因为现在使用新的内存范围
         ];
 
         for &(vstart, size) in memory {
