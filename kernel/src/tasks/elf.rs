@@ -137,6 +137,7 @@ pub fn init_task_stack(
         "PS1=\x1b[1m\x1b[32mMonkeyOS\x1b[0m:\x1b[1m\x1b[34m\\w\x1b[0m\\$ \0",
         "PATH=/:/bin:/usr/bin",
         "UB_BINDIR=./",
+        "HOME=/home",
     ];
     let envp: Vec<usize> = envp
         .into_iter()

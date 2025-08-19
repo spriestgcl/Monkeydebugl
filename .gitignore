@@ -32,3 +32,7 @@ sdcard-la-2.img
 2.txt
 sdcard-la-new.img
 sdcard-rv-new.img
+sdcard-rv-git.img
+sdcard-la-git.img
+output.rv
+out.shell

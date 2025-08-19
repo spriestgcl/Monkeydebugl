@@ -564,16 +564,22 @@ pub async fn initproc() {
         //command("/glibc/busybox sh ", glibc_home_dir.clone()).await;
         //command("/glibc/busybox sh ltp_testcode.sh", glibc_home_dir.clone()).await;
         // run_ltp_tests_glibc(glibc_home_dir.clone()).await;
-
-        command("/glibc/busybox sh /glibc/interrupts_testcode.sh", glibc_home_dir.clone()).await;
-        command("/glibc/busybox sh /glibc/copy-file-range_testcode.sh", glibc_home_dir.clone()).await;
+        command("/glibc/busybox touch /home/.gitconfig", glibc_home_dir.clone()).await;
+        command("/glibc/busybox echo \"hello world\" > README.md", glibc_home_dir.clone()).await;
+        command("/glibc/busybox cat README.md", glibc_home_dir.clone()).await;
+        command("/glibc/busybox touch README.md", glibc_home_dir.clone()).await;
+        command("/glibc/busybox cat README.md", glibc_home_dir.clone()).await;
+        command("/glibc/busybox sh /glibc/git_testcode.sh", glibc_home_dir.clone()).await;
+        command("/glibc/busybox cat /home/.gitconfig", glibc_home_dir.clone()).await;
+        // command("/glibc/busybox sh /glibc/interrupts_testcode.sh", glibc_home_dir.clone()).await;
+        // command("/glibc/busybox sh /glibc/copy-file-range_testcode.sh", glibc_home_dir.clone()).await;
 
         // command(
         //     "/glibc/busybox echo #### OS COMP TEST GROUP START splice-test-glibc ####",
         //     glibc_home_dir.clone(),
         // )
         // .await;
-        command("/glibc/busybox sh /glibc/splice_testcode.sh", glibc_home_dir.clone()).await;
+        // command("/glibc/busybox sh /glibc/splice_testcode.sh", glibc_home_dir.clone()).await;
         // command(
         //     "/glibc/busybox echo #### OS COMP TEST GROUP END splice-test-glibc ####",
         //     glibc_home_dir.clone(),
@@ -582,15 +588,15 @@ pub async fn initproc() {
 
 
         let home_dir = PathBuf::from("/musl");
-        command("/musl/busybox sh /musl/interrupts_testcode.sh", home_dir.clone()).await;
-        command("/musl/busybox sh /musl/copy-file-range_testcode.sh", home_dir.clone()).await;
+        command("/musl/busybox sh /musl/git_testcode.sh", home_dir.clone()).await;
+        // command("/musl/busybox sh /musl/copy-file-range_testcode.sh", home_dir.clone()).await;
 
         // command(
         //     "/musl/busybox echo #### OS COMP TEST GROUP START splice-test-musl ####",
         //     home_dir.clone(),
         // )
         // .await;
-        command("/musl/busybox sh /musl/splice_testcode.sh", home_dir.clone()).await;
+        // command("/musl/busybox sh /musl/splice_testcode.sh", home_dir.clone()).await;
         // command(
         //     "/musl/busybox echo #### OS COMP TEST GROUP END splice-test-musl ####",
         //     home_dir.clone(),

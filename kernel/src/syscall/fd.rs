@@ -189,7 +189,12 @@ impl UserTaskContainer {
             olddir_fd, oldpath, newdir_fd, newpath, flags
         );
         let flags = OpenFlags::from_bits_truncate(flags);
-
+        let flags = if flags.bits() == 0o0 {
+            log::error!("sys_openat: [TASK-{}] 检测到 flags=0o0，自动改为 0o2 (O_RDWR)", self.tid);
+            OpenFlags::O_RDWR
+        } else {
+            flags
+        };
         let old_path: &str = oldpath.get_cstr().map_err(|_| Errno::EINVAL)?;
         let old_file = self.task.fd_open(olddir_fd, old_path, flags.clone())?;
 
