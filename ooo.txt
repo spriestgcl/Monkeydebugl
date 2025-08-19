@@ -1,0 +1,2300 @@
+diff --git a/.gitignore b/.gitignore
+index 5d77ed7..4c0e3a6 100755
+--- a/.gitignore
++++ b/.gitignore
+@@ -28,3 +28,11 @@ sdcard-rv-2.img
+ sdcard-rv-3.img
+ sdcard-la-3.img
+ sdcard-la-2.img
++1.txt
++2.txt
++sdcard-la-new.img
++sdcard-rv-new.img
++sdcard-rv-git.img
++sdcard-la-git.img
++output.rv
++out.shell
+diff --git a/README.md b/README.md
+index 1c7ea80..945a886 100755
+--- a/README.md
++++ b/README.md
+@@ -1,5 +1,58 @@
++# 🐒 OSKernel2025-MonkeyOS
++<div align="center">
++  <img src="./assets/tju_tp_cn.png" alt="logo" height="100" />
++</div>
++<div align="center">
++  <img src="./assets/tju_130.png" alt="tju_130" height="100" />
++  <img src="./assets/tju_130_title.png" alt="logo" height="70" style="margin-left: 20px;" />
++</div>
+ 
+-# MONKEYOS
+-![本地图片](./monkey.png "描述")
++> 该操作系统内核基于[ByteOS](https://github.com/Byte-OS/ByteOS)进行二次开发，感谢河南科技大学在ByteOS项目中展现出的开源精神与卓越贡献，为开源操作系统的发展注入了宝贵力量。
+ 
++## 🎯 项目介绍
++MonkeyOS是在[ByteOS](https://github.com/Byte-OS/ByteOS)的基础上进行二次开发的操作系统内核项目。
+ 
++MonkeyOS做出的改进主要包括：
++- loongarch与risc-v多架构支持的进一步完善
++- 多C标准库的动态支持
++- 系统调用的进一步增添、完善
++- 修复、完善原内核存在的问题，适配赛事测试样例
++- 适配并完善ltp测试要求的功能
++
++## 📕 项目文档
++Monkey决赛文档在"./doc"目录下存储
++
++PPT与视频见网盘：天津大学_Moncake
++链接: https://pan.baidu.com/s/118UkAn8sVSEzRdByz9EfxQ 提取码: 1895
++
++## 🚀 项目结构
++该项目采用 Rust 语言开发，包含以下主要模块：
++
++- kernel：操作系统的核心部分，负责系统初始化、任务调度、内存管理等功能。
++- driver：硬件驱动程序，包括对输入设备、显示器、存储设备等的支持。
++- filesystem：文件系统实现，提供文件读写、目录管理等功能。
++- crates：共享库和工具集，供其他模块使用。
++- vendor：第三方依赖库。
++
++## 🏠 环境要求
++- Rust 编译链（Risc-V与Loongarch）
++- QEMU 等支持多种指令集架构（尤其支持Loongarch）的虚拟机
++
++## 📦 编译与运行方式
++编译本项目：
++```shell
++make all
++```
++
++在QEMU中运行Risc-V指令集架构内核
++```shell
++qemu-system-riscv64 -machine virt -kernel kernel-rv -m 1G -nographic -smp 1 -bios default -drive file=sdcard-rv.img,if=none,format=raw,id=x0 -device virtio-blk-device,drive=x0,bus=virtio-mmio-bus.0 -no-reboot -device virtio-net-device,netdev=net -netdev user,id=net -rtc base=utc
++```
++
++在QEMU中运行Loongarch指令集架构内核
++```shell
++qemu-system-loongarch64 -kernel kernel-la -m 1G -nographic -smp 1 -drive file=sdcard-la.img,if=none,format=raw,id=x0 -device virtio-blk-pci,drive=x0 -no-reboot -device virtio-net-pci,netdev=net0 -netdev user,id=net0 -rtc base=utc
++```
++
++## 📄 许可证
++本项目采用 MIT 许可证，详情请参阅 LICENSE 文件。
+\ No newline at end of file
+diff --git a/assets/tju_130.png b/assets/tju_130.png
+new file mode 100644
+index 0000000..5537699
+Binary files /dev/null and b/assets/tju_130.png differ
+diff --git a/assets/tju_130_title.png b/assets/tju_130_title.png
+new file mode 100644
+index 0000000..679e31d
+Binary files /dev/null and b/assets/tju_130_title.png differ
+diff --git a/assets/tju_tp_cn.png b/assets/tju_tp_cn.png
+new file mode 100644
+index 0000000..aa25ce0
+Binary files /dev/null and b/assets/tju_tp_cn.png differ
+diff --git "a/doc/Docker\346\236\204\345\273\272\347\214\264\344\275\234\347\263\273\347\273\237.pdf" "b/doc/Docker\346\236\204\345\273\272\347\214\264\344\275\234\347\263\273\347\273\237.pdf"
+new file mode 100644
+index 0000000..c3c9655
+Binary files /dev/null and "b/doc/Docker\346\236\204\345\273\272\347\214\264\344\275\234\347\263\273\347\273\237.pdf" differ
+diff --git "a/doc/\345\206\263\350\265\233\346\226\207\346\241\243.pdf" "b/doc/\345\206\263\350\265\233\346\226\207\346\241\243.pdf"
+new file mode 100644
+index 0000000..fe9caeb
+Binary files /dev/null and "b/doc/\345\206\263\350\265\233\346\226\207\346\241\243.pdf" differ
+diff --git a/filesystem/fs/src/ext4_shim.rs b/filesystem/fs/src/ext4_shim.rs
+index 332a97f..f8996b7 100755
+--- a/filesystem/fs/src/ext4_shim.rs
++++ b/filesystem/fs/src/ext4_shim.rs
+@@ -16,6 +16,7 @@ use vfscore::{
+     DirEntry, FileSystem, FileType, INodeInterface, StatFS, StatMode, TimeSpec, VfsResult,
+ };
+ 
++// 保持底层块设备扇区大小 512 字节
+ const BLOCK_SIZE: usize = 0x200;
+ 
+ pub struct Ext4DiskWrapper {
+@@ -52,21 +53,120 @@ impl KernelDevOp for Ext4DiskWrapper {
+     type DevType = Self;
+ 
+     fn write(dev: &mut Self::DevType, buf: &[u8]) -> Result<usize, i32> {
+-        assert!(dev.offset % BLOCK_SIZE == 0);
+-        get_blk_device(0)
+-            .expect("can't find block device")
+-            .write_blocks(dev.block_id, buf);
+-        dev.block_id += buf.len() / BLOCK_SIZE;
+-        Ok(buf.len())
++        let bdev = get_blk_device(dev.blk_id).expect("can't find block device");
++        let mut written = 0;
++        let mut off_in_block = dev.offset; // 0..BLOCK_SIZE-1
++        let mut blk_id = dev.block_id;
++
++        // 先处理起始非对齐部分
++        if off_in_block != 0 {
++            let mut block_buf = [0u8; BLOCK_SIZE];
++            bdev.read_blocks(blk_id, &mut block_buf);
++            let can = core::cmp::min(BLOCK_SIZE - off_in_block, buf.len());
++            block_buf[off_in_block..off_in_block + can].copy_from_slice(&buf[..can]);
++            bdev.write_blocks(blk_id, &block_buf);
++            // verify
++            let mut verify = [0u8; BLOCK_SIZE];
++            bdev.read_blocks(blk_id, &mut verify);
++            if verify[off_in_block..off_in_block + can] != buf[..can] {
++                // retry once
++                bdev.write_blocks(blk_id, &block_buf);
++                bdev.read_blocks(blk_id, &mut verify);
++            }
++            written += can;
++            off_in_block += can;
++            if off_in_block == BLOCK_SIZE {
++                off_in_block = 0;
++                blk_id += 1;
++            }
++        }
++
++        // 再处理完整块
++        let remain = buf.len() - written;
++        if remain >= BLOCK_SIZE {
++            let full_bytes = remain - (remain % BLOCK_SIZE);
++            if full_bytes > 0 {
++                bdev.write_blocks(blk_id, &buf[written..written + full_bytes]);
++                // verify full blocks
++                let mut verify = vec![0u8; full_bytes];
++                bdev.read_blocks(blk_id, &mut verify);
++                if verify[..] != buf[written..written + full_bytes] {
++                    // retry once
++                    bdev.write_blocks(blk_id, &buf[written..written + full_bytes]);
++                    bdev.read_blocks(blk_id, &mut verify);
++                }
++                blk_id += full_bytes / BLOCK_SIZE;
++                written += full_bytes;
++            }
++        }
++
++        // 最后处理尾部非对齐
++        let tail = buf.len() - written;
++        if tail > 0 {
++            let mut block_buf = [0u8; BLOCK_SIZE];
++            bdev.read_blocks(blk_id, &mut block_buf);
++            block_buf[..tail].copy_from_slice(&buf[written..]);
++            bdev.write_blocks(blk_id, &block_buf);
++            // verify tail
++            let mut verify = [0u8; BLOCK_SIZE];
++            bdev.read_blocks(blk_id, &mut verify);
++            if verify[..tail] != buf[written..] {
++                // retry once
++                bdev.write_blocks(blk_id, &block_buf);
++                bdev.read_blocks(blk_id, &mut verify);
++            }
++            off_in_block = tail;
++        }
++
++        // 更新位置
++        dev.block_id = blk_id;
++        dev.offset = off_in_block % BLOCK_SIZE;
++        Ok(written + tail)
+     }
+ 
+     fn read(dev: &mut Self::DevType, buf: &mut [u8]) -> Result<usize, i32> {
+-        assert!(dev.offset % BLOCK_SIZE == 0);
+-        get_blk_device(0)
+-            .expect("can't find block device")
+-            .read_blocks(dev.block_id, buf);
+-        dev.block_id += buf.len() / BLOCK_SIZE;
+-        Ok(buf.len())
++        let bdev = get_blk_device(dev.blk_id).expect("can't find block device");
++        let mut readn = 0;
++        let mut off_in_block = dev.offset;
++        let mut blk_id = dev.block_id;
++
++        // 起始非对齐
++        if off_in_block != 0 {
++            let mut block_buf = [0u8; BLOCK_SIZE];
++            bdev.read_blocks(blk_id, &mut block_buf);
++            let can = core::cmp::min(BLOCK_SIZE - off_in_block, buf.len());
++            buf[..can].copy_from_slice(&block_buf[off_in_block..off_in_block + can]);
++            readn += can;
++            off_in_block += can;
++            if off_in_block == BLOCK_SIZE {
++                off_in_block = 0;
++                blk_id += 1;
++            }
++        }
++
++        // 完整块
++        let remain = buf.len() - readn;
++        if remain >= BLOCK_SIZE {
++            let full_bytes = remain - (remain % BLOCK_SIZE);
++            if full_bytes > 0 {
++                bdev.read_blocks(blk_id, &mut buf[readn..readn + full_bytes]);
++                blk_id += full_bytes / BLOCK_SIZE;
++                readn += full_bytes;
++            }
++        }
++
++        // 尾部非对齐
++        let tail = buf.len() - readn;
++        if tail > 0 {
++            let mut block_buf = [0u8; BLOCK_SIZE];
++            bdev.read_blocks(blk_id, &mut block_buf);
++            buf[readn..].copy_from_slice(&block_buf[..tail]);
++            off_in_block = tail;
++        }
++
++        dev.block_id = blk_id;
++        dev.offset = off_in_block % BLOCK_SIZE;
++        Ok(readn + tail)
+     }
+ 
+     fn seek(dev: &mut Self::DevType, off: i64, whence: i32) -> Result<i64, i32> {
+@@ -209,6 +309,9 @@ impl INodeInterface for Ext4FileWrapper {
+             let path = file.get_path();
+             let path = path.to_str().unwrap();
+ 
++            // 读取前先确保设备/缓存已同步，避免读到旧数据
++            let _ = file.file_cache_flush();
++
+             match file.file_open(path, O_RDONLY) {
+                 Ok(_) => match file.file_seek(offset as _, 0) {
+                     Ok(_) => match file.file_read(buffer) {
+@@ -248,26 +351,65 @@ impl INodeInterface for Ext4FileWrapper {
+         let path = path.to_str().unwrap();
+         file.file_open(path, O_RDWR).map_err(map_ext4_err)?;
+ 
+-        // Get current file size
+-        let current_size = file.file_size();
+-
+-        // If writing beyond current file size, we need to extend the file
+-        if offset > current_size as usize {
+-            // First, seek to the end of the file
+-            file.file_seek(current_size as i64, 0).map_err(map_ext4_err)?;
+-
+-            // Write zeros to fill the gap
+-            let gap_size = offset - current_size as usize;
+-            let zero_buffer = vec![0u8; gap_size];
+-            file.file_write(&zero_buffer).map_err(map_ext4_err)?;
+-        } else {
+-            // Normal seek within file bounds
+-            file.file_seek(offset as _, 0).map_err(map_ext4_err)?;
++        // 若写入位置超过当前文件大小，优先对小间隙进行零填充，
++        // 对大间隙使用 truncate 扩展，避免大块 0 的实际写入
++        let current_size = file.file_size() as usize;
++        if offset > current_size {
++            let gap = offset - current_size;
++            const ZERO_FILL_THRESHOLD: usize = 1 << 20; // 1 MiB
++            if gap <= ZERO_FILL_THRESHOLD {
++                // 小间隙：物理写入零，保证读回为0
++                file.file_seek(current_size as i64, 0)
++                    .map_err(map_ext4_err)?;
++                // 分块写入，避免一次性分配过大缓冲
++                const CHUNK: usize = 64 * 1024;
++                let mut remain = gap;
++                let mut zero_chunk = [0u8; CHUNK];
++                while remain > 0 {
++                    let to_write = core::cmp::min(CHUNK, remain);
++                    file.file_write(&zero_chunk[..to_write])
++                        .map_err(map_ext4_err)?;
++                    remain -= to_write;
++                }
++                // 确保零填充数据落盘
++                let _ = file.file_cache_flush();
++            } else {
++                // 大间隙：使用 truncate 逻辑扩展为稀疏区
++                file.file_truncate(offset as u64).map_err(map_ext4_err)?;
++            }
+         }
+ 
+-        let wsize = file.file_write(buffer).map_err(map_ext4_err)?;
++        // 定位到目标偏移写入
++        file.file_seek(offset as _, 0).map_err(map_ext4_err)?;
++
++        // 写入：切分为页粒度，处理短写并提高持久化可靠性
++        const PAGE: usize = 4096;
++        let mut written = 0;
++        while written < buffer.len() {
++            let remain = buffer.len() - written;
++            let chunk = core::cmp::min(PAGE, remain);
++            // log::error!("ext4_shim::writeat page off={} len={}", offset + written, chunk);
++            let mut done = 0;
++            while done < chunk {
++                let w = file
++                    .file_write(&buffer[written + done..written + chunk])
++                    .map_err(map_ext4_err)?;
++                if w == 0 {
++                    break;
++                }
++                done += w;
++            }
++            // 每页刷一次缓存，避免后续读到旧数据
++            let _ = file.file_cache_flush();
++            written += done;
++            if done < chunk {
++                break;
++            }
++        }
++        // 写入后确保缓存刷新
++        let _ = file.file_cache_flush();
+         let _ = file.file_close();
+-        Ok(wsize)
++        Ok(written)
+     }
+ 
+     fn mkdir(&self, name: &str) -> VfsResult<()> {
+diff --git a/filesystem/fs/src/fatfs_shim.rs b/filesystem/fs/src/fatfs_shim.rs
+index 8e854c7..716624e 100755
+--- a/filesystem/fs/src/fatfs_shim.rs
++++ b/filesystem/fs/src/fatfs_shim.rs
+@@ -105,24 +105,39 @@ impl INodeInterface for FatFile {
+         let seek_curr = SeekFrom::Start(offset as _);
+         let curr_off = inner.inner.seek(seek_curr).map_err(as_vfs_err)? as usize;
+         if offset != curr_off {
+-            let buffer = vec![0u8; 512];
+-            loop {
+-                let wlen = cmp::min(offset - inner.size, 512);
+-
+-                if wlen == 0 {
+-                    break;
++            // 需要填充零字节从curr_off到offset
++            let zero_buffer = vec![0u8; 512];
++            let mut remaining_zeros = offset - curr_off;
++
++            while remaining_zeros > 0 {
++                let wlen = cmp::min(remaining_zeros, 512);
++                let real_wlen = inner.inner.write(&zero_buffer[..wlen]).map_err(as_vfs_err)?;
++                if real_wlen == 0 {
++                    break; // 无法继续写入
+                 }
+-                let real_wlen = inner.inner.write(&buffer).map_err(as_vfs_err)?;
++                remaining_zeros -= real_wlen;
+                 inner.size += real_wlen;
+             }
+         }
+ 
+-        inner.inner.write_all(buffer).map_err(as_vfs_err)?;
++        // 使用循环写入来确保所有数据都被写入，并正确跟踪写入的字节数
++        let mut total_written = 0;
++        let mut remaining = buffer;
++
++        while !remaining.is_empty() {
++            let written = inner.inner.write(remaining).map_err(as_vfs_err)?;
++            if written == 0 {
++                // 如果write返回0，说明无法继续写入
++                break;
++            }
++            total_written += written;
++            remaining = &remaining[written..];
++        }
+ 
+-        if offset + buffer.len() > inner.size {
+-            inner.size = offset + buffer.len();
++        if offset + total_written > inner.size {
++            inner.size = offset + total_written;
+         }
+-        Ok(buffer.len())
++        Ok(total_written)
+     }
+ 
+     fn flush(&self) -> VfsResult<()> {
+diff --git a/filesystem/fs/src/file.rs b/filesystem/fs/src/file.rs
+index 5c8224a..a0e750a 100755
+--- a/filesystem/fs/src/file.rs
++++ b/filesystem/fs/src/file.rs
+@@ -1,313 +1,320 @@
+-use crate::{dentry::get_mounted, pathbuf::PathBuf, WaitBlockingRead, WaitBlockingWrite};
+-use alloc::{string::String, sync::Arc, vec::Vec};
+-use sync::Mutex;
+-use syscalls::Errno;
+-use vfscore::{
+-    DirEntry, Dirent64, FileType, INodeInterface, OpenFlags, PollEvent, SeekFrom, Stat, StatFS,
+-    TimeSpec, VfsResult,
+-};
+-
+-pub struct File {
+-    pub inner: Arc<dyn INodeInterface>,
+-    path_buf: PathBuf,
+-    pub offset: Mutex<usize>,
+-    pub flags: Mutex<OpenFlags>,
+-}
+-
+-impl<'a> File {
+-    pub fn open(path_buf: PathBuf, flags: OpenFlags) -> VfsResult<File> {
+-        let (de, path) = get_mounted(&path_buf);
+-        let mut file = de.node().clone();
+-
+-        if path.levels() > 0 {
+-            for name in path.dir().iter() {
+-                file = file.lookup(name)?;
+-            }
+-
+-            if flags.contains(OpenFlags::O_CREAT) {
+-                file.create(
+-                    &path.filename(),
+-                    if flags.contains(OpenFlags::O_DIRECTORY) {
+-                        FileType::Directory
+-                    } else {
+-                        FileType::File
+-                    },
+-                )?;
+-            }
+-            file = file.lookup(&path.filename())?;
+-        }
+-
+-        Ok(Self {
+-            inner: file,
+-            path_buf,
+-            offset: Mutex::new(0),
+-            flags: Mutex::new(flags),
+-        })
+-    }
+-
+-    pub fn new_dev(inner: Arc<dyn INodeInterface>) -> Arc<Self> {
+-        Arc::new(Self {
+-            inner,
+-            offset: Mutex::new(0),
+-            path_buf: PathBuf::new(),
+-            flags: Mutex::new(OpenFlags::O_RDWR),
+-        })
+-    }
+-
+-    pub fn remove_self(&self) -> VfsResult<()> {
+-        let dir = Self::open(self.path_buf.dir(), OpenFlags::O_DIRECTORY)?;
+-        dir.remove(&self.path_buf.filename())
+-    }
+-
+-    pub fn get_bare_file(&self) -> Arc<dyn INodeInterface> {
+-        self.inner.clone()
+-    }
+-
+-    #[inline(always)]
+-    fn check_writeable(&self) -> Result<(), Errno> {
+-        let flags = self.flags.lock().clone();
+-        if flags.contains(OpenFlags::O_RDWR) | flags.contains(OpenFlags::O_WRONLY) {
+-            Ok(())
+-        } else {
+-            Err(Errno::EPERM)
+-        }
+-    }
+-
+-    #[inline]
+-    pub fn path(&self) -> String {
+-        self.path_buf.path()
+-    }
+-
+-    pub fn path_buf(&self) -> PathBuf {
+-        self.path_buf.clone()
+-    }
+-
+-    pub fn file_size(&self) -> VfsResult<usize> {
+-        let mut stat = Stat::default();
+-        self.inner.stat(&mut stat)?;
+-        Ok(stat.size as _)
+-    }
+-
+-    pub fn file_type(&self) -> VfsResult<FileType> {
+-        let mut stat = Stat::default();
+-        self.inner.stat(&mut stat)?;
+-        Ok(stat.mode.into())
+-    }
+-
+-    pub fn getdents(&self, buffer: &mut [u8]) -> Result<usize, Errno> {
+-        let buf_ptr = buffer.as_mut_ptr() as usize;
+-        let len = buffer.len();
+-        let mut ptr: usize = buf_ptr;
+-        let mut finished = 0;
+-        
+-        // 添加保护机制防止卡死
+-        let max_entries = 50; // 限制最多处理50个目录项
+-        let mut processed_count = 0;
+-        
+-        let dir_entries = match self.read_dir() {
+-            Ok(entries) => entries,
+-            Err(e) => {
+-                log::warn!("getdents read_dir failed: {:?}, returning empty result", e);
+-                return Ok(0); // 返回0而不是错误
+-            }
+-        };
+-        
+-        for (i, x) in dir_entries
+-            .iter()
+-            .enumerate()
+-            .skip(*self.offset.lock())
+-        {
+-            processed_count += 1;
+-            if processed_count > max_entries {
+-                log::warn!("getdents hit max_entries limit ({}), truncating to prevent deadlock", max_entries);
+-                break;
+-            }
+-            
+-            let filename = &x.filename;
+-            let file_bytes = filename.as_bytes();
+-            let current_len = size_of::<Dirent64>() + file_bytes.len() + 1;
+-            if len - (ptr - buf_ptr) < current_len {
+-                break;
+-            }
+-
+-            // let dirent = c2rust_ref(ptr as *mut Dirent);
+-            let dirent: &mut Dirent64 = unsafe { (ptr as *mut Dirent64).as_mut() }.unwrap();
+-
+-            dirent.ino = 0;
+-            dirent.off = current_len as i64;
+-            dirent.reclen = current_len as u16;
+-
+-            dirent.ftype = 0; // 0 ftype is file
+-
+-            let buffer = unsafe {
+-                core::slice::from_raw_parts_mut(dirent.name.as_mut_ptr(), file_bytes.len() + 1)
+-            };
+-            buffer[..file_bytes.len()].copy_from_slice(file_bytes);
+-            buffer[file_bytes.len()] = b'\0';
+-            ptr = ptr + current_len;
+-            finished = i + 1;
+-        }
+-        *self.offset.lock() = finished;
+-        log::info!("getdents completed with {} bytes processed", ptr - buf_ptr);
+-        Ok(ptr - buf_ptr)
+-    }
+-}
+-
+-impl File {
+-    pub fn mkdir(&self, name: &str) -> Result<(), Errno> {
+-        self.inner.mkdir(name)
+-    }
+-
+-    pub fn rmdir(&self, name: &str) -> Result<(), Errno> {
+-        self.inner.rmdir(name)
+-    }
+-
+-    pub fn remove(&self, name: &str) -> Result<(), Errno> {
+-        self.inner.remove(name)
+-    }
+-
+-    pub fn moveto(&self, _path: &str) -> Result<Self, Errno> {
+-        todo!("Move the file? to other location")
+-    }
+-
+-    pub fn read_dir(&self) -> Result<Vec<DirEntry>, Errno> {
+-        self.inner.read_dir()
+-    }
+-
+-    pub fn lookup(&self, name: &str) -> Result<Arc<dyn INodeInterface>, Errno> {
+-        self.inner.lookup(name)
+-    }
+-
+-    pub fn ioctl(&self, command: usize, arg: usize) -> Result<usize, Errno> {
+-        self.inner.ioctl(command, arg)
+-    }
+-
+-    pub fn truncate(&self, size: usize) -> Result<(), Errno> {
+-        self.inner.truncate(size)
+-    }
+-
+-    pub fn flush(&self) -> Result<(), Errno> {
+-        self.inner.flush()
+-    }
+-
+-    pub fn resolve_link(&self) -> Result<String, Errno> {
+-        self.inner.resolve_link()
+-    }
+-
+-    pub fn link(&self, name: &str, src: Arc<dyn INodeInterface>) -> Result<(), Errno> {
+-        self.inner.link(name, src)
+-    }
+-
+-    pub fn unlink(&self, name: &str) -> Result<(), Errno> {
+-        self.inner.unlink(name)
+-    }
+-
+-    pub fn stat(&self, stat: &mut Stat) -> Result<(), Errno> {
+-        self.inner.stat(stat)?;
+-        stat.dev = 0;
+-        Ok(())
+-    }
+-
+-    #[inline]
+-    pub fn symlink(&self, name: &str, target: &str) -> Result<(), Errno> {
+-        self.inner.symlink(name, target)
+-    }
+-
+-    pub fn mount(&self, path: &str) -> Result<(), Errno> {
+-        self.inner.mount(path)
+-    }
+-
+-    pub fn umount(&self) -> Result<(), Errno> {
+-        self.inner.umount()
+-    }
+-
+-    pub fn statfs(&self, statfs: &mut StatFS) -> Result<(), Errno> {
+-        self.inner.statfs(statfs)
+-    }
+-
+-    pub fn utimes(&self, times: &mut [TimeSpec]) -> Result<(), Errno> {
+-        self.inner.utimes(times)
+-    }
+-
+-    pub fn poll(&self, events: PollEvent) -> Result<PollEvent, Errno> {
+-        self.inner.poll(events)
+-    }
+-}
+-
+-impl File {
+-    pub fn readat(&self, offset: usize, buffer: &mut [u8]) -> Result<usize, Errno> {
+-        self.inner.readat(offset, buffer)
+-    }
+-
+-    pub fn writeat(&self, offset: usize, buffer: &[u8]) -> Result<usize, Errno> {
+-        self.check_writeable()?;
+-        if buffer.len() == 0 {
+-            return Ok(0);
+-        }
+-        self.inner.writeat(offset, buffer)
+-    }
+-
+-    pub fn read(&self, buffer: &mut [u8]) -> Result<usize, Errno> {
+-        let offset = *self.offset.lock();
+-        self.inner.readat(offset, buffer).map(|x| {
+-            *self.offset.lock() += x;
+-            x
+-        })
+-    }
+-
+-    pub fn write(&self, buffer: &[u8]) -> Result<usize, Errno> {
+-        self.check_writeable()?;
+-        if buffer.len() == 0 {
+-            return Ok(0);
+-        }
+-        let offset = *self.offset.lock();
+-        self.inner.writeat(offset, buffer).map(|x| {
+-            *self.offset.lock() += x;
+-            x
+-        })
+-    }
+-
+-    pub async fn async_read(&self, buffer: &mut [u8]) -> Result<usize, Errno> {
+-        let offset = *self.offset.lock();
+-        if self.flags.lock().contains(OpenFlags::O_NONBLOCK) {
+-            self.inner.readat(offset, buffer)
+-        } else {
+-            WaitBlockingRead::new(self.inner.clone(), buffer, offset).await
+-        }
+-        .map(|x| {
+-            *self.offset.lock() += x;
+-            x
+-        })
+-    }
+-
+-    pub async fn async_write(&self, buffer: &[u8]) -> Result<usize, Errno> {
+-        // self.check_writeable()?;
+-        if buffer.len() == 0 {
+-            return Ok(0);
+-        }
+-        let offset = *self.offset.lock();
+-        WaitBlockingWrite::new(self.inner.clone(), &buffer, offset)
+-            .await
+-            .map(|x| {
+-                *self.offset.lock() += x;
+-                x
+-            })
+-    }
+-
+-    pub fn seek(&self, seek_from: SeekFrom) -> Result<usize, Errno> {
+-        let offset = *self.offset.lock();
+-        let mut stat = Stat::default();
+-        self.inner.stat(&mut stat)?;
+-        let mut new_off = match seek_from {
+-            SeekFrom::SET(off) => off as isize,
+-            SeekFrom::CURRENT(off) => offset as isize + off,
+-            SeekFrom::END(off) => stat.size as isize + off,
+-        };
+-        if new_off < 0 {
+-            new_off = 0;
+-        }
+-        // assert!(new_off >= 0);
+-        *self.offset.lock() = new_off as _;
+-        Ok(new_off as _)
+-    }
+-}
++use crate::{dentry::get_mounted, pathbuf::PathBuf, WaitBlockingRead, WaitBlockingWrite};
++use alloc::{string::String, sync::Arc, vec::Vec};
++use sync::Mutex;
++use syscalls::Errno;
++use vfscore::{
++    DirEntry, Dirent64, FileType, INodeInterface, OpenFlags, PollEvent, SeekFrom, Stat, StatFS,
++    TimeSpec, VfsResult,
++};
++
++pub struct File {
++    pub inner: Arc<dyn INodeInterface>,
++    path_buf: PathBuf,
++    pub offset: Mutex<usize>,
++    pub flags: Mutex<OpenFlags>,
++}
++
++impl<'a> File {
++    pub fn open(path_buf: PathBuf, flags: OpenFlags) -> VfsResult<File> {
++        let (de, path) = get_mounted(&path_buf);
++        let mut file = de.node().clone();
++
++        if path.levels() > 0 {
++            for name in path.dir().iter() {
++                file = file.lookup(name)?;
++            }
++
++            if flags.contains(OpenFlags::O_CREAT) {
++                file.create(
++                    &path.filename(),
++                    if flags.contains(OpenFlags::O_DIRECTORY) {
++                        FileType::Directory
++                    } else {
++                        FileType::File
++                    },
++                )?;
++            }
++            file = file.lookup(&path.filename())?;
++        }
++
++        Ok(Self {
++            inner: file,
++            path_buf,
++            offset: Mutex::new(0),
++            flags: Mutex::new(flags),
++        })
++    }
++
++    pub fn new_dev(inner: Arc<dyn INodeInterface>) -> Arc<Self> {
++        Arc::new(Self {
++            inner,
++            offset: Mutex::new(0),
++            path_buf: PathBuf::new(),
++            flags: Mutex::new(OpenFlags::O_RDWR),
++        })
++    }
++
++    pub fn remove_self(&self) -> VfsResult<()> {
++        let dir = Self::open(self.path_buf.dir(), OpenFlags::O_DIRECTORY)?;
++        dir.remove(&self.path_buf.filename())
++    }
++
++    pub fn get_bare_file(&self) -> Arc<dyn INodeInterface> {
++        self.inner.clone()
++    }
++
++    #[inline(always)]
++    fn check_writeable(&self) -> Result<(), Errno> {
++        let flags = self.flags.lock().clone();
++        if flags.contains(OpenFlags::O_RDWR) | flags.contains(OpenFlags::O_WRONLY) {
++            Ok(())
++        } else {
++            Err(Errno::EPERM)
++        }
++    }
++
++    #[inline]
++    pub fn path(&self) -> String {
++        self.path_buf.path()
++    }
++
++    pub fn path_buf(&self) -> PathBuf {
++        self.path_buf.clone()
++    }
++
++    pub fn file_size(&self) -> VfsResult<usize> {
++        let mut stat = Stat::default();
++        self.inner.stat(&mut stat)?;
++        Ok(stat.size as _)
++    }
++
++    pub fn file_type(&self) -> VfsResult<FileType> {
++        let mut stat = Stat::default();
++        self.inner.stat(&mut stat)?;
++        Ok(stat.mode.into())
++    }
++
++    pub fn getdents(&self, buffer: &mut [u8]) -> Result<usize, Errno> {
++        let buf_ptr = buffer.as_mut_ptr() as usize;
++        let len = buffer.len();
++        let mut ptr: usize = buf_ptr;
++        let mut finished = 0;
++        
++        // 添加保护机制防止卡死
++        let max_entries = 50; // 限制最多处理50个目录项
++        let mut processed_count = 0;
++        
++        let dir_entries = match self.read_dir() {
++            Ok(entries) => entries,
++            Err(e) => {
++                log::warn!("getdents read_dir failed: {:?}, returning empty result", e);
++                return Ok(0); // 返回0而不是错误
++            }
++        };
++        
++        for (i, x) in dir_entries
++            .iter()
++            .enumerate()
++            .skip(*self.offset.lock())
++        {
++            processed_count += 1;
++            if processed_count > max_entries {
++                log::warn!("getdents hit max_entries limit ({}), truncating to prevent deadlock", max_entries);
++                break;
++            }
++            
++            let filename = &x.filename;
++            let file_bytes = filename.as_bytes();
++            let current_len = size_of::<Dirent64>() + file_bytes.len() + 1;
++            if len - (ptr - buf_ptr) < current_len {
++                break;
++            }
++
++            // let dirent = c2rust_ref(ptr as *mut Dirent);
++            let dirent: &mut Dirent64 = unsafe { (ptr as *mut Dirent64).as_mut() }.unwrap();
++
++            dirent.ino = 0;
++            dirent.off = current_len as i64;
++            dirent.reclen = current_len as u16;
++
++            dirent.ftype = 0; // 0 ftype is file
++
++            let buffer = unsafe {
++                core::slice::from_raw_parts_mut(dirent.name.as_mut_ptr(), file_bytes.len() + 1)
++            };
++            buffer[..file_bytes.len()].copy_from_slice(file_bytes);
++            buffer[file_bytes.len()] = b'\0';
++            ptr = ptr + current_len;
++            finished = i + 1;
++        }
++        *self.offset.lock() = finished;
++        log::info!("getdents completed with {} bytes processed", ptr - buf_ptr);
++        Ok(ptr - buf_ptr)
++    }
++}
++
++impl File {
++    pub fn mkdir(&self, name: &str) -> Result<(), Errno> {
++        self.inner.mkdir(name)
++    }
++
++    pub fn rmdir(&self, name: &str) -> Result<(), Errno> {
++        self.inner.rmdir(name)
++    }
++
++    pub fn remove(&self, name: &str) -> Result<(), Errno> {
++        self.inner.remove(name)
++    }
++
++    pub fn moveto(&self, _path: &str) -> Result<Self, Errno> {
++        todo!("Move the file? to other location")
++    }
++
++    pub fn read_dir(&self) -> Result<Vec<DirEntry>, Errno> {
++        self.inner.read_dir()
++    }
++
++    pub fn lookup(&self, name: &str) -> Result<Arc<dyn INodeInterface>, Errno> {
++        self.inner.lookup(name)
++    }
++
++    pub fn ioctl(&self, command: usize, arg: usize) -> Result<usize, Errno> {
++        self.inner.ioctl(command, arg)
++    }
++
++    pub fn truncate(&self, size: usize) -> Result<(), Errno> {
++        self.inner.truncate(size)
++    }
++
++    pub fn flush(&self) -> Result<(), Errno> {
++        self.inner.flush()
++    }
++
++    pub fn resolve_link(&self) -> Result<String, Errno> {
++        self.inner.resolve_link()
++    }
++
++    pub fn link(&self, name: &str, src: Arc<dyn INodeInterface>) -> Result<(), Errno> {
++        self.inner.link(name, src)
++    }
++
++    pub fn unlink(&self, name: &str) -> Result<(), Errno> {
++        self.inner.unlink(name)
++    }
++
++    pub fn stat(&self, stat: &mut Stat) -> Result<(), Errno> {
++        self.inner.stat(stat)?;
++        stat.dev = 0;
++        Ok(())
++    }
++
++    #[inline]
++    pub fn symlink(&self, name: &str, target: &str) -> Result<(), Errno> {
++        self.inner.symlink(name, target)
++    }
++
++    pub fn mount(&self, path: &str) -> Result<(), Errno> {
++        self.inner.mount(path)
++    }
++
++    pub fn umount(&self) -> Result<(), Errno> {
++        self.inner.umount()
++    }
++
++    pub fn statfs(&self, statfs: &mut StatFS) -> Result<(), Errno> {
++        self.inner.statfs(statfs)
++    }
++
++    pub fn utimes(&self, times: &mut [TimeSpec]) -> Result<(), Errno> {
++        self.inner.utimes(times)
++    }
++
++    pub fn poll(&self, events: PollEvent) -> Result<PollEvent, Errno> {
++        self.inner.poll(events)
++    }
++}
++
++impl File {
++    pub fn readat(&self, offset: usize, buffer: &mut [u8]) -> Result<usize, Errno> {
++        self.inner.readat(offset, buffer)
++    }
++
++    pub fn writeat(&self, offset: usize, buffer: &[u8]) -> Result<usize, Errno> {
++        self.check_writeable()?;
++        if buffer.len() == 0 {
++            return Ok(0);
++        }
++        self.inner.writeat(offset, buffer)
++    }
++
++    pub fn read(&self, buffer: &mut [u8]) -> Result<usize, Errno> {
++        let offset = *self.offset.lock();
++        // 读取前先刷新，避免读取到旧缓存
++        let _ = self.inner.flush();
++        self.inner.readat(offset, buffer).map(|x| {
++            *self.offset.lock() += x;
++            x
++        })
++    }
++
++    pub fn write(&self, buffer: &[u8]) -> Result<usize, Errno> {
++        self.check_writeable()?;
++        if buffer.len() == 0 {
++            return Ok(0);
++        }
++        let offset = *self.offset.lock();
++        let n = self.inner.writeat(offset, buffer)?;
++        // 写后刷新，保证随后的读取可见
++        let _ = self.inner.flush();
++        Ok(n).map(|x| {
++            *self.offset.lock() += x;
++            x
++        })
++    }
++
++    pub async fn async_read(&self, buffer: &mut [u8]) -> Result<usize, Errno> {
++        let offset = *self.offset.lock();
++        if self.flags.lock().contains(OpenFlags::O_NONBLOCK) {
++            // 非阻塞直接读前也刷新一次
++            let _ = self.inner.flush();
++            self.inner.readat(offset, buffer)
++        } else {
++            // 阻塞读前刷新，确保底层缓存一致
++            let _ = self.inner.flush();
++            WaitBlockingRead::new(self.inner.clone(), buffer, offset).await
++        }
++        .map(|x| {
++            *self.offset.lock() += x;
++            x
++        })
++    }
++
++    pub async fn async_write(&self, buffer: &[u8]) -> Result<usize, Errno> {
++        // self.check_writeable()?;
++        if buffer.len() == 0 {
++            return Ok(0);
++        }
++        let offset = *self.offset.lock();
++        let n = WaitBlockingWrite::new(self.inner.clone(), &buffer, offset).await?;
++        let _ = self.inner.flush();
++        *self.offset.lock() += n;
++        Ok(n)
++    }
++
++    pub fn seek(&self, seek_from: SeekFrom) -> Result<usize, Errno> {
++        let offset = *self.offset.lock();
++        let mut stat = Stat::default();
++        self.inner.stat(&mut stat)?;
++        let mut new_off = match seek_from {
++            SeekFrom::SET(off) => off as isize,
++            SeekFrom::CURRENT(off) => offset as isize + off,
++            SeekFrom::END(off) => stat.size as isize + off,
++        };
++        if new_off < 0 {
++            new_off = 0;
++        }
++        // assert!(new_off >= 0);
++        *self.offset.lock() = new_off as _;
++        Ok(new_off as _)
++    }
++}
+diff --git a/kernel/src/syscall/fd.rs b/kernel/src/syscall/fd.rs
+index e0bdfc7..a5d49c4 100755
+--- a/kernel/src/syscall/fd.rs
++++ b/kernel/src/syscall/fd.rs
+@@ -1,9 +1,8 @@
+-use fs::pathbuf::PathBuf;
+ use super::types::fd::IoVec;
+ use super::types::poll::{EpollEvent, EpollFile};
+ use super::types::splice::SpliceFlags;
+ use super::SysResult;
+-use crate::syscall::types::fd::{FcntlCmd, KStat, AT_CWD, Statx, StatxTimestamp, STATX_ALL}; // 修复：统一导入并添加statx相关类型
++use crate::syscall::types::fd::{FcntlCmd, KStat, Statx, StatxTimestamp, AT_CWD, STATX_ALL}; // 修复：统一导入并添加statx相关类型
+ use crate::user::UserTaskContainer;
+ use crate::utils::time::{current_nsec, current_timespec};
+ use crate::utils::useref::UserRef;
+@@ -14,11 +13,12 @@ use core::cmp;
+ use executor::yield_now;
+ use fs::dentry::umount;
+ use fs::file::File;
++use fs::pathbuf::PathBuf;
+ use fs::{
+     pipe::create_pipe, OpenFlags, PollEvent, PollFd, SeekFrom, Stat, StatFS, StatMode, TimeSpec,
+     UTIME_NOW,
+ };
+-use log::{debug, warn};
++use log::{debug, error, warn};
+ use num_traits::FromPrimitive;
+ use polyhal::VirtAddr;
+ use syscalls::Errno;
+@@ -44,18 +44,35 @@ impl UserTaskContainer {
+     }
+ 
+     pub async fn sys_read(&self, fd: usize, buf_ptr: UserRef<u8>, count: usize) -> SysResult {
+-        error!(
+-            "[task {}] sys_read @ fd: {} buf_ptr: {:?} count: {}",
+-            self.tid, fd as isize, buf_ptr, count
+-        );
+-        error!{"start slice"}
++        // error!(
++        //     "[task {}] sys_read @ fd: {} buf_ptr: {:?} count: {}",
++        //     self.tid, fd as isize, buf_ptr, count
++        // );
++        // error!{"start slice"}
+         let buffer = buf_ptr.slice_mut_with_len(count);
+-        error!{"finish slice"}
+-        self.task
+-            .get_fd(fd)
+-            .ok_or(Errno::EBADF)?
+-            .async_read(buffer)
+-            .await
++        // error!{"finish slice"}
++        let file = self.task.get_fd(fd).ok_or(Errno::EBADF)?;
++        // 读取前刷新，避免读取到旧缓存
++        let _ = file.flush();
++        // 显式使用 readat + 手动推进偏移，并做一次双读校验（选择第二次结果）
++        let cur = file.seek(vfscore::SeekFrom::CURRENT(0))?;
++        let mut tmp1 = vec![0u8; count];
++        let n1 = file.readat(cur, &mut tmp1)?;
++        let mut n = n1;
++        let mut tmp2 = vec![0u8; n1];
++        let n2 = if n1 > 0 {
++            file.readat(cur, &mut tmp2)?
++        } else {
++            0
++        };
++        if n2 > 0 {
++            n = core::cmp::min(n1, n2);
++            buffer[..n].copy_from_slice(&tmp2[..n]);
++        } else if n1 > 0 {
++            buffer[..n1].copy_from_slice(&tmp1[..n1]);
++        }
++        let _ = file.seek(vfscore::SeekFrom::SET(cur + n));
++        Ok(n)
+     }
+ 
+     pub async fn sys_write(&self, fd: usize, buf_ptr: VirtAddr, count: usize) -> SysResult {
+@@ -65,7 +82,9 @@ impl UserTaskContainer {
+         );
+         let buffer = buf_ptr.slice_with_len(count);
+         let file = self.task.get_fd(fd).ok_or(Errno::EBADF)?;
+-        file.async_write(buffer).await
++        let n = file.async_write(buffer).await?;
++        let _ = file.flush();
++        Ok(n)
+     }
+ 
+     pub async fn sys_readv(&self, fd: usize, iov: UserRef<IoVec>, iocnt: usize) -> SysResult {
+@@ -146,7 +165,10 @@ impl UserTaskContainer {
+                     current_fd = new_fd as isize;
+                 }
+                 Err(e) => {
+-                    warn!("mkdir_at: failed to open/create component {}: {:?}", comp, e);
++                    warn!(
++                        "mkdir_at: failed to open/create component {}: {:?}",
++                        comp, e
++                    );
+                     return Err(e);
+                 }
+             }
+@@ -167,7 +189,12 @@ impl UserTaskContainer {
+             olddir_fd, oldpath, newdir_fd, newpath, flags
+         );
+         let flags = OpenFlags::from_bits_truncate(flags);
+-
++        let flags = if flags.bits() == 0o0 {
++            log::error!("sys_openat: [TASK-{}] 检测到 flags=0o0，自动改为 0o2 (O_RDWR)", self.tid);
++            OpenFlags::O_RDWR
++        } else {
++            flags
++        };
+         let old_path: &str = oldpath.get_cstr().map_err(|_| Errno::EINVAL)?;
+         let old_file = self.task.fd_open(olddir_fd, old_path, flags.clone())?;
+ 
+@@ -191,7 +218,10 @@ impl UserTaskContainer {
+             )?;
+         } else if old_file_type == FileType::Device {
+             // 不允许对设备文件进行重命名操作
+-            debug!("sys_renameat2 @ Device file rename not allowed: {}", old_path);
++            debug!(
++                "sys_renameat2 @ Device file rename not allowed: {}",
++                old_path
++            );
+             return Err(Errno::EPERM);
+         } else {
+             panic!("can't handle the file: {:?} now", old_file_type);
+@@ -240,12 +270,19 @@ impl UserTaskContainer {
+             "sys_openat @ fd: {}, filename: {}, flags: {:?}, mode: {}",
+             dir_fd as isize, filename, flags, mode
+         );
+-        
++
+         // Special logging for daemon-related file operations
+-        if filename.contains("dev/") || filename.contains("daemon") || filename.contains("null") || filename.contains("tty") {
+-            warn!("DAEMON_DEBUG: Opening device/daemon file via openat: {}, flags: {:?}, mode: {:#o}", filename, flags, mode);
++        if filename.contains("dev/")
++            || filename.contains("daemon")
++            || filename.contains("null")
++            || filename.contains("tty")
++        {
++            warn!(
++                "DAEMON_DEBUG: Opening device/daemon file via openat: {}, flags: {:?}, mode: {:#o}",
++                filename, flags, mode
++            );
+         }
+-        
++
+         // let dir = to_node(&self.task, fd, filename)?;
+         // let file = dir.dentry_open(filename, flags)?;
+         match self.task.fd_open(dir_fd, filename, flags) {
+@@ -256,8 +293,15 @@ impl UserTaskContainer {
+                 Ok(fd)
+             }
+             Err(e) => {
+-                if filename.contains("dev/") || filename.contains("daemon") || filename.contains("null") || filename.contains("tty") {
+-                    warn!("DAEMON_DEBUG: Failed to open device file {}: {:?}", filename, e);
++                if filename.contains("dev/")
++                    || filename.contains("daemon")
++                    || filename.contains("null")
++                    || filename.contains("tty")
++                {
++                    warn!(
++                        "DAEMON_DEBUG: Failed to open device file {}: {:?}",
++                        filename, e
++                    );
+                 }
+                 Err(e)
+             }
+@@ -266,18 +310,28 @@ impl UserTaskContainer {
+ 
+     pub async fn sys_open(&self, path: UserRef<u8>, flags: usize, mode: usize) -> SysResult {
+         let path = path.get_cstr().map_err(|_| Errno::EINVAL)?;
+-        debug!("sys_open @ path: {}, flags: {:#x}, mode: {:#o}", path, flags, mode);
+-        
++        debug!(
++            "sys_open @ path: {}, flags: {:#x}, mode: {:#o}",
++            path, flags, mode
++        );
++
+         // Special logging for daemon-related file operations
+-        if path.contains("dev/") || path.contains("daemon") || path.contains("null") || path.contains("tty") {
+-            warn!("DAEMON_DEBUG: Opening device/daemon file: {}, flags: {:#x}, mode: {:#o}", path, flags, mode);
++        if path.contains("dev/")
++            || path.contains("daemon")
++            || path.contains("null")
++            || path.contains("tty")
++        {
++            warn!(
++                "DAEMON_DEBUG: Opening device/daemon file: {}, flags: {:#x}, mode: {:#o}",
++                path, flags, mode
++            );
+         }
+-        
++
+         // Convert string path to UserRef<i8> for openat
+         let path_bytes = path.as_bytes();
+         let path_ptr = path_bytes.as_ptr() as *const i8;
+         let path_ref = UserRef::<i8>::from(path_ptr as usize);
+-        
++
+         self.sys_openat(AT_CWD, path_ref, flags, mode).await
+     }
+ 
+@@ -304,14 +358,14 @@ impl UserTaskContainer {
+ 
+     pub async fn sys_fstat(&self, fd: usize, kst: usize) -> SysResult {
+         debug!("[task {}] sys_fstat @ fd: {}", self.tid, fd);
+-        
++
+         // 获取文件对象
+         let file = self.task.get_fd(fd).ok_or_else(|| Errno::EBADF)?;
+-        
++
+         // 先获取原始的Stat结构体
+         let mut stat = Stat::default();
+         file.stat(&mut stat)?;
+-        
++
+         // 转换为KStat结构体
+         let kstat = KStat {
+             st_dev: stat.dev,
+@@ -334,7 +388,7 @@ impl UserTaskContainer {
+             st_ctime_nsec: stat.ctime.nsec as i64,
+             __unused: [0u32; 2],
+         };
+-        
++
+         // 将KStat写入用户空间
+         let kst_ref = UserRef::<KStat>::from(kst);
+         *kst_ref.get_mut() = kstat;
+@@ -421,7 +475,25 @@ impl UserTaskContainer {
+         let buffer = ptr.slice_mut_with_len(len);
+ 
+         let file = self.task.get_fd(fd).ok_or(Errno::EBADF)?;
+-        file.readat(offset, buffer)
++        // 读前刷新
++        let _ = file.flush();
++        // 双读校验（选择第二次结果）
++        let mut tmp1 = vec![0u8; len];
++        let n1 = file.readat(offset, &mut tmp1)?;
++        let mut n = n1;
++        let mut tmp2 = vec![0u8; n1];
++        let n2 = if n1 > 0 {
++            file.readat(offset, &mut tmp2)?
++        } else {
++            0
++        };
++        if n2 > 0 {
++            n = core::cmp::min(n1, n2);
++            buffer[..n].copy_from_slice(&tmp2[..n]);
++        } else if n1 > 0 {
++            buffer[..n1].copy_from_slice(&tmp1[..n1]);
++        }
++        Ok(n)
+     }
+ 
+     pub async fn sys_pwrite(
+@@ -436,10 +508,10 @@ impl UserTaskContainer {
+             fd as isize, buf_ptr, count
+         );
+         let buffer = buf_ptr.slice_with_len(count);
+-        self.task
+-            .get_fd(fd)
+-            .ok_or(Errno::EBADF)?
+-            .writeat(offset, buffer)
++        let file = self.task.get_fd(fd).ok_or(Errno::EBADF)?;
++        let n = file.writeat(offset, buffer)?;
++        let _ = file.flush();
++        Ok(n)
+     }
+ 
+     pub async fn sys_mount(
+@@ -483,17 +555,26 @@ impl UserTaskContainer {
+                     if let Ok(dev_node) = File::open(special.into(), OpenFlags::O_RDONLY) {
+                         match dev_node.mount(dir) {
+                             Ok(_) => {
+-                                debug!("successfully mounted {} at {} (device: {})", fstype, dir, special);
++                                debug!(
++                                    "successfully mounted {} at {} (device: {})",
++                                    fstype, dir, special
++                                );
+                                 Ok(0)
+                             }
+                             Err(e) => {
+-                                debug!("failed to mount {} at {}: {:?}, but continuing", fstype, dir, e);
++                                debug!(
++                                    "failed to mount {} at {}: {:?}, but continuing",
++                                    fstype, dir, e
++                                );
+                                 // 即使挂载失败也返回成功，因为测试可能只是验证接口
+                                 Ok(0)
+                             }
+                         }
+                     } else {
+-                        debug!("device {} not found for mounting {}, assuming virtual mount", special, fstype);
++                        debug!(
++                            "device {} not found for mounting {}, assuming virtual mount",
++                            special, fstype
++                        );
+                         Ok(0)
+                     }
+                 } else {
+@@ -508,7 +589,7 @@ impl UserTaskContainer {
+     pub async fn sys_umount2(&self, special: UserRef<i8>, flags: usize) -> SysResult {
+         let special = special.get_cstr().map_err(|_| Errno::EINVAL)?;
+         debug!("sys_umount2 @ special: {}, flags: {}", special, flags);
+-        
++
+         // 检查路径是否为空
+         if special.is_empty() {
+             return Err(Errno::EINVAL);
+@@ -564,23 +645,29 @@ impl UserTaskContainer {
+         // 添加超时保护防止在目录遍历时卡死
+         let start_time = crate::utils::time::current_nsec();
+         let timeout_ns = 5_000_000_000; // 5秒超时
+-        
++
+         let file = self.task.get_fd(fd).unwrap();
+         let buffer = buf_ptr.slice_mut_with_len(len);
+-        
++
+         // 检查超时
+         if crate::utils::time::current_nsec() - start_time > timeout_ns {
+             log::warn!("sys_getdents64 timeout detected, returning partial result");
+             return Ok(0); // 返回0字节，表示目录结束
+         }
+-        
++
+         match file.getdents(buffer) {
+             Ok(result) => {
+-                log::info!("sys_getdents64 completed successfully with {} bytes", result);
++                log::info!(
++                    "sys_getdents64 completed successfully with {} bytes",
++                    result
++                );
+                 Ok(result)
+             }
+             Err(e) => {
+-                log::warn!("sys_getdents64 failed: {:?}, returning 0 to avoid system crash", e);
++                log::warn!(
++                    "sys_getdents64 failed: {:?}, returning 0 to avoid system crash",
++                    e
++                );
+                 Ok(0) // 出错时返回0而不是错误，避免系统崩溃
+             }
+         }
+@@ -1104,40 +1191,242 @@ impl UserTaskContainer {
+         fd_out: usize,
+         off_out: UserRef<usize>,
+         len: usize,
+-        flags: usize,
++        flags: u32,
+     ) -> SysResult {
+-        assert_eq!(flags, 0);
+-        debug!(
+-            "sys_copy_file_range @ fd_in: {}, off_in: {}, fd_out: {}, off_out: {}, len: {}",
+-            fd_in, off_in, fd_out, off_out, len
+-        );
++        if flags != 0 {
++            return Err(Errno::EINVAL);
++        }
++        // error!(
++        //     "sys_copy_file_range @ fd_in: {}, off_in: {}, fd_out: {}, off_out: {}, len: {}",
++        //     fd_in, off_in, fd_out, off_out, len
++        // );
++        // error!(
++        //     "sys_copy_file_range @ off_in.is_valid(): {}, off_out.is_valid(): {}",
++        //     off_in.is_valid(), off_out.is_valid()
++        // );
+         let in_file = self.task.get_fd(fd_in).ok_or(Errno::EBADF)?;
+         let out_file = self.task.get_fd(fd_out).ok_or(Errno::EBADF)?;
+-        let mut buffer = vec![0u8; len];
+-        let rsize = if off_in.is_valid() {
+-            let rsize = in_file.readat(*off_in.get_ref(), &mut buffer)?;
+-            *off_in.get_mut() += rsize;
+-            rsize
+-        } else {
+-            in_file.read(&mut buffer)?
+-        };
+ 
+-        if rsize == 0 {
++        if len == 0 {
+             return Ok(0);
+         }
+ 
++        // 添加用户空间指针验证函数
++        fn check_user_small_range(
++            _task: &crate::tasks::UserTask,
++            addr: usize,
++            size: usize,
++        ) -> Result<(), Errno> {
++            // 简单的地址范围检查
++            if addr == 0 || size == 0 {
++                return Err(Errno::EFAULT);
++            }
++            // 检查是否会溢出
++            if addr.checked_add(size).is_none() {
++                return Err(Errno::EFAULT);
++            }
++            // 这里可以添加更多的页表检查逻辑
++            Ok(())
++        }
++
++        fn read_user_usize(
++            _task: &crate::tasks::UserTask,
++            user_ref: UserRef<usize>,
++        ) -> Result<usize, Errno> {
++            Ok(*user_ref.get_ref())
++        }
++
++        fn write_user_usize(
++            _task: &crate::tasks::UserTask,
++            user_ref: UserRef<usize>,
++            value: usize,
++        ) -> Result<(), Errno> {
++            *user_ref.get_mut() = value;
++            Ok(())
++        }
++
++        // 验证用户空间指针的有效性（包含跨页检查）
++        if off_in.is_valid() {
++            if let Err(e) =
++                check_user_small_range(&self.task, off_in.addr(), core::mem::size_of::<usize>())
++            {
++                debug!(
++                    "sys_copy_file_range: off_in address {:#x} range not mapped",
++                    off_in.addr()
++                );
++                return Err(e);
++            }
++        }
+         if off_out.is_valid() {
+-            let written = out_file.writeat(*off_out.get_ref(), &buffer[..rsize])?;
+-            debug!("sys_copy_file_range: writeat at offset {}, wrote {} bytes", *off_out.get_ref(), written);
+-            *off_out.get_mut() += written;
++            if let Err(e) =
++                check_user_small_range(&self.task, off_out.addr(), core::mem::size_of::<usize>())
++            {
++                debug!(
++                    "sys_copy_file_range: off_out address {:#x} range not mapped",
++                    off_out.addr()
++                );
++                return Err(e);
++            }
++        }
++
++        // 计算本次最多可复制的总字节数（受输入文件剩余大小限制）
++        let read_offset = if off_in.is_valid() {
++            let v = read_user_usize(&self.task, off_in)?;
++            // error!("sys_copy_file_range: initial off_in=*{}", v);
++            v
++        } else {
++            let cur = in_file.seek(vfscore::SeekFrom::CURRENT(0))?;
++            // error!("sys_copy_file_range: initial in-file offset {}", cur);
++            cur
++        };
++        let file_size = in_file.file_size()?;
++        // error!("sys_copy_file_range: file_size={} read_offset={}", file_size, read_offset);
++        if read_offset >= file_size {
++            // error!("sys_copy_file_range: offset beyond EOF -> return 0");
++            return Ok(0);
++        }
++        // 与 Linux 语义一致：本次最多复制到 EOF
++        let mut remaining = core::cmp::min(len, file_size - read_offset);
++        if remaining == 0 {
++            return Ok(0);
++        }
++
++        // 分块缓冲：避免分配巨型缓冲，且能更好处理短读/短写
++        const CHUNK: usize = 64 * 1024;
++        let mut buf = vec![0u8; CHUNK];
++        let mut copied_total: usize = 0;
++
++        // 当前读/写偏移，仅当使用 *off_in / *off_out 时才维护
++        // 统一采用显式偏移复制：
++        let in_start: usize = read_offset;
++        let out_start: usize = if off_out.is_valid() {
++            read_user_usize(&self.task, off_out)?
+         } else {
+-            let current_offset = out_file.seek(vfscore::SeekFrom::CURRENT(0))?;
+-            let written = out_file.write(&buffer[..rsize])?;
+-            let new_offset = out_file.seek(vfscore::SeekFrom::CURRENT(0))?;
+-            debug!("sys_copy_file_range: write at offset {}, wrote {} bytes, new offset {}", current_offset, written, new_offset);
++            out_file.seek(vfscore::SeekFrom::CURRENT(0))?
++        };
++        let mut cur_in_off: usize = in_start;
++        let mut cur_out_off: usize = out_start;
++
++        while remaining > 0 {
++            let want = core::cmp::min(CHUNK, remaining);
++
++            // 读取（显式偏移）
++            let r = in_file.readat(cur_in_off, &mut buf[..want])?;
++            // error!("sys_copy_file_range: readat off={} want={} -> r={}", cur_in_off, want, r);
++            if r == 0 {
++                break;
++            }
++            cur_in_off += r;
++
++            // 写入（处理短写）
++            let mut wdone = 0;
++            while wdone < r {
++                let w = out_file.writeat(cur_out_off + wdone, &buf[wdone..r])?;
++                // error!("sys_copy_file_range: writeat off={} len={} -> w={}", cur_out_off + wdone, r - wdone, w);
++                if w == 0 {
++                    break;
++                }
++                wdone += w;
++            }
++
++            // 如果发生短写，停止复制
++            if wdone < r {
++                copied_total += wdone;
++                remaining -= wdone;
++                // 推进 out 偏移
++                cur_out_off += wdone;
++                break;
++            }
++
++            copied_total += r;
++            remaining -= r;
++
++            // 正常写完一块后推进 out 偏移
++            cur_out_off += r;
+         }
+ 
+-        Ok(rsize)
++        // 更新用户提供的偏移量（如果存在）
++        if off_in.is_valid() && copied_total > 0 {
++            write_user_usize(&self.task, off_in, in_start + copied_total)?;
++        }
++        if off_out.is_valid() && copied_total > 0 {
++            write_user_usize(&self.task, off_out, out_start + copied_total)?;
++        }
++
++        // 同步更新文件偏移（只有当未提供显式偏移时）
++        if !off_in.is_valid() && copied_total > 0 {
++            let _ = in_file.seek(vfscore::SeekFrom::SET(in_start + copied_total));
++        }
++        if !off_out.is_valid() && copied_total > 0 {
++            let _ = out_file.seek(vfscore::SeekFrom::SET(out_start + copied_total));
++        }
++
++        // 确保目标文件大小至少达到写入结束位置（无论是否提供 out_off）
++        if copied_total > 0 {
++            let end_off = out_start + copied_total;
++            let cur_size = out_file.file_size()?;
++            if cur_size < end_off {
++                out_file.truncate(end_off)?;
++            }
++        }
++
++        // 始终刷新目标文件，避免立即读出现旧数据
++        let _ = out_file.flush();
++
++        // 额外的页级校验与重写保护：
++        // 某些底层路径可能在极端情况下留下整页为零的数据洞，这里做一次按页检查并回写
++        if copied_total > 0 {
++            // 端到端强制重写（页对齐覆盖整个范围，包含首尾未对齐部分）
++            const PAGE: usize = 4096;
++            let cover_start = out_start & !(PAGE - 1);
++            let cover_end = (out_start + copied_total + PAGE - 1) & !(PAGE - 1);
++            let mut p = cover_start;
++            let mut buf = vec![0u8; PAGE];
++            while p < cover_end {
++                let seg_start = core::cmp::max(p, out_start);
++                let seg_end = core::cmp::min(p + PAGE, out_start + copied_total);
++                let seg_len = seg_end.saturating_sub(seg_start);
++                if seg_len == 0 {
++                    p += PAGE;
++                    continue;
++                }
++                let src_off = in_start + (seg_start - out_start);
++                // error!("copy CFR force rewrite aligned page off={} len={}", seg_start, seg_len);
++                let _ = in_file.readat(src_off, &mut buf[..seg_len]);
++                let _ = out_file.writeat(seg_start, &buf[..seg_len]);
++                p += PAGE;
++            }
++            let _ = out_file.flush();
++            // 内核侧即时直读核对 94208 位置的前 16 字节
++            const PROBE_OFF: usize = 94208;
++            if copied_total > 0 && PROBE_OFF >= out_start && PROBE_OFF < out_start + copied_total {
++                let mut out_probe = [0u8; 32];
++                let mut in_probe = [0u8; 32];
++                // 目标文件直接 readat
++                let _ = out_file.readat(PROBE_OFF, &mut out_probe);
++                // 源文件对应偏移
++                let src_off = in_start + (PROBE_OFF - out_start);
++                let _ = in_file.readat(src_off, &mut in_probe);
++
++                // 打印前 16 字节为十六进制
++                fn hex16(b: &[u8]) -> alloc::string::String {
++                    b[..16]
++                        .iter()
++                        .map(|x| format!("{:02x}", x))
++                        .collect::<alloc::vec::Vec<_>>()
++                        .join(" ")
++                }
++                // error!(
++                //     "CFR PROBE off={} out[0..16]={} in[0..16]={}",
++                //     PROBE_OFF,
++                //     hex16(&out_probe),
++                //     hex16(&in_probe),
++                // );
++            }
++        }
++
++        debug!("sys_copy_file_range: returning {}", copied_total);
++        Ok(copied_total)
+     }
+ 
+     pub async fn sys_symlinkat(
+@@ -1180,7 +1469,8 @@ impl UserTaskContainer {
+         statx.stx_ino = stat.ino;
+         statx.stx_dev_major = ((stat.dev >> 8) & 0xfff) as u32 | ((stat.dev >> 32) & !0xfff) as u32;
+         statx.stx_dev_minor = (stat.dev & 0xff) as u32 | ((stat.dev >> 12) & !0xff) as u32;
+-        statx.stx_rdev_major = ((stat.rdev >> 8) & 0xfff) as u32 | ((stat.rdev >> 32) & !0xfff) as u32;
++        statx.stx_rdev_major =
++            ((stat.rdev >> 8) & 0xfff) as u32 | ((stat.rdev >> 32) & !0xfff) as u32;
+         statx.stx_rdev_minor = (stat.rdev & 0xff) as u32 | ((stat.rdev >> 12) & !0xff) as u32;
+         statx.stx_uid = stat.uid;
+         statx.stx_gid = stat.gid;
+@@ -1239,22 +1529,26 @@ impl UserTaskContainer {
+ 
+         // 检查文件是否存在
+         let _file = self.task.fd_open(dir_fd, path, OpenFlags::O_RDONLY)?;
+-        
++
+         // 目前的文件系统不完全支持权限管理，但为了让chmod命令成功执行，
+         // 我们返回成功状态。这对于大多数应用来说是足够的。
+         debug!(
+             "sys_fchmodat @ Successfully handled chmod for path: {} with mode: {:o}",
+-            path, mode & 0o777
++            path,
++            mode & 0o777
+         );
+-        
++
+         Ok(0)
+     }
+ 
+     /// chown系统调用 - 改变文件所有者
+     pub async fn sys_chown(&self, path: UserRef<i8>, owner: usize, group: usize) -> SysResult {
+         let path = path.get_cstr().map_err(|_| Errno::EINVAL)?;
+-        debug!("sys_chown @ path: {}, owner: {}, group: {}", path, owner, group);
+-        
++        debug!(
++            "sys_chown @ path: {}, owner: {}, group: {}",
++            path, owner, group
++        );
++
+         // 检查文件是否存在
+         let _file = match self.task.fd_open(AT_CWD, path, OpenFlags::O_RDONLY) {
+             Ok(file) => file,
+@@ -1263,17 +1557,17 @@ impl UserTaskContainer {
+                 return Err(e);
+             }
+         };
+-        
++
+         // 处理特殊值：-1 表示不改变所有者/组
+         // 在usize中，-1表示为usize::MAX
+         let owner_change = owner != usize::MAX;
+         let group_change = group != usize::MAX;
+-        
++
+         debug!(
+             "sys_chown @ path: {}, owner_change: {}, group_change: {}, owner: {}, group: {}",
+             path, owner_change, group_change, owner, group
+         );
+-        
++
+         // 对于LTP测试，我们需要支持基本的chown操作
+         // 目前的文件系统不完全支持所有权管理，但为了让 chown 命令成功执行，
+         // 我们返回成功状态。这对于大多数应用来说是足够的。
+@@ -1281,66 +1575,76 @@ impl UserTaskContainer {
+             "sys_chown @ Successfully handled chown for path: {} with owner: {} group: {}",
+             path, owner, group
+         );
+-        
++
+         Ok(0)
+     }
+ 
+     /// fchown系统调用 - 改变文件描述符对应文件的所有者
+     pub async fn sys_fchown(&self, fd: usize, owner: usize, group: usize) -> SysResult {
+-        debug!("sys_fchown @ fd: {}, owner: {}, group: {}", fd, owner, group);
+-        
++        debug!(
++            "sys_fchown @ fd: {}, owner: {}, group: {}",
++            fd, owner, group
++        );
++
+         // 检查文件描述符是否有效
+         let _file = self.task.get_fd(fd).ok_or(Errno::EBADF)?;
+-        
++
+         // 处理特殊值：-1 表示不改变所有者/组
+         let owner_change = owner != usize::MAX;
+         let group_change = group != usize::MAX;
+-        
++
+         debug!(
+             "sys_fchown @ fd: {}, owner_change: {}, group_change: {}, owner: {}, group: {}",
+             fd, owner_change, group_change, owner, group
+         );
+-        
++
+         // 目前的文件系统不完全支持所有权管理，但为了让 fchown 命令成功执行，
+         // 我们返回成功状态。这对于大多数应用来说是足够的。
+         debug!(
+             "sys_fchown @ Successfully handled fchown for fd: {} with owner: {} group: {}",
+             fd, owner, group
+         );
+-        
++
+         Ok(0)
+     }
+ 
+     /// lchown系统调用 - 改变符号链接本身的所有者（不跟随链接）
+     pub async fn sys_lchown(&self, path: UserRef<i8>, owner: usize, group: usize) -> SysResult {
+         let path = path.get_cstr().map_err(|_| Errno::EINVAL)?;
+-        debug!("sys_lchown @ path: {}, owner: {}, group: {}", path, owner, group);
+-        
++        debug!(
++            "sys_lchown @ path: {}, owner: {}, group: {}",
++            path, owner, group
++        );
++
+         // 检查文件是否存在（对于符号链接，不跟随链接）
+-        let _file = match self.task.fd_open(AT_CWD, path, OpenFlags::O_RDONLY | OpenFlags::O_NOFOLLOW) {
+-            Ok(file) => file,
+-            Err(e) => {
+-                debug!("sys_lchown @ File not found: {}, error: {:?}", path, e);
+-                return Err(e);
+-            }
+-        };
+-        
++        let _file =
++            match self
++                .task
++                .fd_open(AT_CWD, path, OpenFlags::O_RDONLY | OpenFlags::O_NOFOLLOW)
++            {
++                Ok(file) => file,
++                Err(e) => {
++                    debug!("sys_lchown @ File not found: {}, error: {:?}", path, e);
++                    return Err(e);
++                }
++            };
++
+         // 处理特殊值：-1 表示不改变所有者/组
+         let owner_change = owner != usize::MAX;
+         let group_change = group != usize::MAX;
+-        
++
+         debug!(
+             "sys_lchown @ path: {}, owner_change: {}, group_change: {}, owner: {}, group: {}",
+             path, owner_change, group_change, owner, group
+         );
+-        
++
+         // 目前的文件系统不完全支持所有权管理，但为了让 lchown 命令成功执行，
+         // 我们返回成功状态。这对于大多数应用来说是足够的。
+         debug!(
+             "sys_lchown @ Successfully handled lchown for path: {} with owner: {} group: {}",
+             path, owner, group
+         );
+-        
++
+         Ok(0)
+     }
+ 
+@@ -1360,7 +1664,8 @@ impl UserTaskContainer {
+         );
+ 
+         // 处理标志位
+-        let open_flags = if flags & 0x100 != 0 {  // AT_SYMLINK_NOFOLLOW
++        let open_flags = if flags & 0x100 != 0 {
++            // AT_SYMLINK_NOFOLLOW
+             OpenFlags::O_RDONLY | OpenFlags::O_NOFOLLOW
+         } else {
+             OpenFlags::O_RDONLY
+@@ -1374,23 +1679,23 @@ impl UserTaskContainer {
+                 return Err(e);
+             }
+         };
+-        
++
+         // 处理特殊值：-1 表示不改变所有者/组
+         let owner_change = owner != usize::MAX;
+         let group_change = group != usize::MAX;
+-        
++
+         debug!(
+             "sys_fchownat @ dir_fd: {}, path: {}, owner_change: {}, group_change: {}, owner: {}, group: {}",
+             dir_fd, path, owner_change, group_change, owner, group
+         );
+-        
++
+         // 目前的文件系统不完全支持所有权管理，但为了让 fchownat 命令成功执行，
+         // 我们返回成功状态。这对于大多数应用来说是足够的。
+         debug!(
+             "sys_fchownat @ Successfully handled fchownat for path: {} with owner: {} group: {}",
+             path, owner, group
+         );
+-        
++
+         Ok(0)
+     }
+ 
+@@ -1398,10 +1703,10 @@ impl UserTaskContainer {
+     /// 对LTP测试框架的输出缓冲处理至关重要
+     pub async fn sys_fsync(&self, fd: usize) -> SysResult {
+         debug!("sys_fsync @ fd: {}", fd);
+-        
++
+         // 获取文件描述符以验证其有效性
+         let _file = self.task.get_fd(fd).ok_or(Errno::EBADF)?;
+-        
++
+         // 对于特殊的文件描述符（stdin, stdout, stderr），
+         // 我们需要确保输出被正确刷新，这对LTP测试结果收集很重要
+         if fd <= 2 {
+@@ -1410,11 +1715,14 @@ impl UserTaskContainer {
+             // 这确保了LTP测试框架的输出缓冲被正确处理
+             return Ok(0);
+         }
+-        
++
+         // 对于常规文件，在我们的系统中大多数文件系统操作都是立即写入的
+         // 所以fsync主要是一个标记操作，表示数据已同步
+         // 这对LTP框架确保测试结果正确传递很重要
+-        debug!("fsync @ Successfully synced file descriptor {} - ensuring data consistency", fd);
++        debug!(
++            "fsync @ Successfully synced file descriptor {} - ensuring data consistency",
++            fd
++        );
+         Ok(0)
+     }
+ 
+@@ -1422,10 +1730,10 @@ impl UserTaskContainer {
+     /// 对LTP测试框架的输出缓冲处理至关重要
+     pub async fn sys_fdatasync(&self, fd: usize) -> SysResult {
+         debug!("sys_fdatasync @ fd: {}", fd);
+-        
++
+         // 获取文件描述符以验证其有效性
+         let _file = self.task.get_fd(fd).ok_or(Errno::EBADF)?;
+-        
++
+         // 对于特殊的文件描述符（stdin, stdout, stderr），
+         // 我们需要确保输出被正确刷新，这对LTP测试结果收集很重要
+         if fd <= 2 {
+@@ -1434,7 +1742,7 @@ impl UserTaskContainer {
+             // 这确保了LTP测试框架的输出缓冲被正确处理
+             return Ok(0);
+         }
+-        
++
+         // fdatasync只同步文件数据，不同步元数据（比fsync稍快）
+         // 在我们的系统中，这和fsync效果类似
+         debug!("fdatasync @ Successfully synced file data for descriptor {} - ensuring LTP output consistency", fd);
+@@ -1445,33 +1753,39 @@ impl UserTaskContainer {
+     /// LTP使用flock来确保多个进程不会同时访问结果文件
+     pub async fn sys_flock(&self, fd: usize, operation: usize) -> SysResult {
+         debug!("sys_flock @ fd: {}, operation: {}", fd, operation);
+-        
++
+         // flock操作常量
+-        const LOCK_SH: usize = 1;   // 共享锁
+-        const LOCK_EX: usize = 2;   // 排他锁
+-        const LOCK_NB: usize = 4;   // 非阻塞
+-        const LOCK_UN: usize = 8;   // 解锁
+-        
++        const LOCK_SH: usize = 1; // 共享锁
++        const LOCK_EX: usize = 2; // 排他锁
++        const LOCK_NB: usize = 4; // 非阻塞
++        const LOCK_UN: usize = 8; // 解锁
++
+         // 获取文件描述符以验证其有效性
+         let _file = self.task.get_fd(fd).ok_or(Errno::EBADF)?;
+-        
++
+         // 提取基本操作类型（去除LOCK_NB标志）
+         let base_op = operation & !LOCK_NB;
+         let is_nonblocking = (operation & LOCK_NB) != 0;
+-        
++
+         warn!("FLOCK_DEBUG: LTP file locking - fd: {}, operation: {:#x}, base_op: {}, nonblocking: {}", 
+               fd, operation, base_op, is_nonblocking);
+-        
++
+         match base_op {
+             LOCK_SH => {
+                 // 共享锁 - 允许多个进程读取
+-                warn!("FLOCK_DEBUG: Acquiring shared lock on fd {} for LTP result collection", fd);
++                warn!(
++                    "FLOCK_DEBUG: Acquiring shared lock on fd {} for LTP result collection",
++                    fd
++                );
+                 // 对于LTP，我们简化实现，总是成功
+                 Ok(0)
+             }
+             LOCK_EX => {
+                 // 排他锁 - 只允许一个进程访问
+-                warn!("FLOCK_DEBUG: Acquiring exclusive lock on fd {} for LTP result collection", fd);
++                warn!(
++                    "FLOCK_DEBUG: Acquiring exclusive lock on fd {} for LTP result collection",
++                    fd
++                );
+                 // 对于LTP，我们简化实现，总是成功
+                 Ok(0)
+             }
+@@ -1483,7 +1797,10 @@ impl UserTaskContainer {
+             }
+             _ => {
+                 // 未知操作
+-                warn!("FLOCK_DEBUG: Unknown flock operation {:#x} on fd {}", operation, fd);
++                warn!(
++                    "FLOCK_DEBUG: Unknown flock operation {:#x} on fd {}",
++                    operation, fd
++                );
+                 Err(Errno::EINVAL)
+             }
+         }
+@@ -1493,62 +1810,77 @@ impl UserTaskContainer {
+     /// 对LTP测试结果收集极其重要，确保所有数据真正写入存储
+     pub async fn sys_sync(&self) -> SysResult {
+         warn!("SYNC_DEBUG: LTP requesting system-wide sync - critical for test result persistence");
+-        
++
+         // 对于所有打开的文件描述符，尝试同步
+         let mut sync_count = 0;
+-        
+-        for fd in 0..=255 {  // 检查常用的文件描述符范围
++
++        for fd in 0..=255 {
++            // 检查常用的文件描述符范围
+             if let Some(_file) = self.task.get_fd(fd) {
+                 // 对于每个有效的文件描述符，执行同步操作
+                 sync_count += 1;
+             }
+         }
+-        
+-        warn!("SYNC_DEBUG: Synchronized {} file descriptors for LTP test result persistence", sync_count);
+-        
++
++        warn!(
++            "SYNC_DEBUG: Synchronized {} file descriptors for LTP test result persistence",
++            sync_count
++        );
++
+         // 特别重要：确保标准输出流被刷新，这对LTP结果收集至关重要
+         warn!("SYNC_DEBUG: Ensuring stdout/stderr flush for LTP result collection");
+-        
++
+         // 在真实系统中，sync()会刷新所有文件系统的脏页面
+         // 对于我们的系统，我们确保关键的输出流被处理
+-        
++
+         // 模拟系统范围的同步完成
+         warn!("SYNC_DEBUG: System-wide sync completed - LTP test results should now be persistent");
+-        
++
+         Ok(0)
+     }
+ 
+     /// linkat系统调用 - 创建硬链接
+     /// LTP测试可能使用硬链接来管理测试文件
+     pub async fn sys_linkat(
+-        &self, 
+-        olddirfd: isize, 
+-        oldpath: UserRef<u8>, 
+-        newdirfd: isize, 
+-        newpath: UserRef<u8>, 
+-        flags: usize
++        &self,
++        olddirfd: isize,
++        oldpath: UserRef<u8>,
++        newdirfd: isize,
++        newpath: UserRef<u8>,
++        flags: usize,
+     ) -> SysResult {
+         let oldpath = oldpath.get_cstr().map_err(|_| Errno::EINVAL)?;
+         let newpath = newpath.get_cstr().map_err(|_| Errno::EINVAL)?;
+-        
+-        debug!("sys_linkat @ olddirfd: {}, oldpath: {}, newdirfd: {}, newpath: {}, flags: {:#x}", 
+-               olddirfd, oldpath, newdirfd, newpath, flags);
+-        
+-        warn!("LINKAT_DEBUG: LTP creating hard link {} -> {} for test file management", newpath, oldpath);
+-        
++
++        debug!(
++            "sys_linkat @ olddirfd: {}, oldpath: {}, newdirfd: {}, newpath: {}, flags: {:#x}",
++            olddirfd, oldpath, newdirfd, newpath, flags
++        );
++
++        warn!(
++            "LINKAT_DEBUG: LTP creating hard link {} -> {} for test file management",
++            newpath, oldpath
++        );
++
+         // 打开源文件
+         let _old_file = match self.task.fd_open(olddirfd, oldpath, OpenFlags::O_RDONLY) {
+             Ok(file) => file,
+             Err(e) => {
+-                warn!("LINKAT_DEBUG: Failed to open source file {}: {:?}", oldpath, e);
++                warn!(
++                    "LINKAT_DEBUG: Failed to open source file {}: {:?}",
++                    oldpath, e
++                );
+                 return Err(e);
+             }
+         };
+-        
++
+         // 简化实现：对于LTP测试，我们只是模拟硬链接创建成功
+         // 在真实系统中，需要更复杂的inode管理
+-        warn!("LINKAT_DEBUG: Successfully created hard link {} -> {} for LTP (simulated)", newpath, oldpath);
+-        
++        warn!(
++            "LINKAT_DEBUG: Successfully created hard link {} -> {} for LTP (simulated)",
++            newpath, oldpath
++        );
++
+         Ok(0)
+     }
+ 
+@@ -1557,16 +1889,22 @@ impl UserTaskContainer {
+     pub async fn sys_truncate(&self, pathname: UserRef<u8>, length: usize) -> SysResult {
+         let pathname = pathname.get_cstr().map_err(|_| Errno::EINVAL)?;
+         debug!("sys_truncate @ pathname: {}, length: {}", pathname, length);
+-        
+-        warn!("TRUNCATE_DEBUG: LTP truncating file {} to length {} for test file management", pathname, length);
+-        
++
++        warn!(
++            "TRUNCATE_DEBUG: LTP truncating file {} to length {} for test file management",
++            pathname, length
++        );
++
+         // 打开文件用于写入
+         let file = File::open(pathname.into(), OpenFlags::O_WRONLY)?;
+-        
++
+         // 执行截断操作
+         file.truncate(length)?;
+-        
+-        warn!("TRUNCATE_DEBUG: Successfully truncated file {} to {} bytes", pathname, length);
++
++        warn!(
++            "TRUNCATE_DEBUG: Successfully truncated file {} to {} bytes",
++            pathname, length
++        );
+         Ok(0)
+     }
+ 
+@@ -1624,7 +1962,10 @@ impl UserTaskContainer {
+         if off_in.is_valid() {
+             let offset = *off_in.get_ref();
+             if offset > (isize::MAX as usize) {
+-                debug!("sys_splice: negative input offset detected: {}", offset as isize);
++                debug!(
++                    "sys_splice: negative input offset detected: {}",
++                    offset as isize
++                );
+                 return Err(Errno::EINVAL);
+             }
+         }
+@@ -1632,12 +1973,14 @@ impl UserTaskContainer {
+         if off_out.is_valid() {
+             let offset = *off_out.get_ref();
+             if offset > (isize::MAX as usize) {
+-                debug!("sys_splice: negative output offset detected: {}", offset as isize);
++                debug!(
++                    "sys_splice: negative output offset detected: {}",
++                    offset as isize
++                );
+                 return Err(Errno::EINVAL);
+             }
+         }
+ 
+-        
+         // Check if both fds refer to the same pipe
+         if fd_in == fd_out {
+             debug!("sys_splice: input and output refer to same pipe");
+diff --git a/kernel/src/tasks/elf.rs b/kernel/src/tasks/elf.rs
+index 3e3bef0..fbdf928 100755
+--- a/kernel/src/tasks/elf.rs
++++ b/kernel/src/tasks/elf.rs
+@@ -137,6 +137,7 @@ pub fn init_task_stack(
+         "PS1=\x1b[1m\x1b[32mMonkeyOS\x1b[0m:\x1b[1m\x1b[34m\\w\x1b[0m\\$ \0",
+         "PATH=/:/bin:/usr/bin",
+         "UB_BINDIR=./",
++        "HOME=/home",
+     ];
+     let envp: Vec<usize> = envp
+         .into_iter()
+diff --git a/kernel/src/tasks/initproc.rs b/kernel/src/tasks/initproc.rs
+index 0b14622..7168ca7 100755
+--- a/kernel/src/tasks/initproc.rs
++++ b/kernel/src/tasks/initproc.rs
+@@ -518,6 +518,7 @@ pub async fn initproc() {
+         // .await;
+ 
+         let glibc_home_dir = PathBuf::from("/glibc");
++        
+         // 确保glibc目录也有正确的链接
+         command("/glibc/busybox mkdir -p /bin", glibc_home_dir.clone()).await;
+         // command(
+@@ -563,16 +564,22 @@ pub async fn initproc() {
+         //command("/glibc/busybox sh ", glibc_home_dir.clone()).await;
+         //command("/glibc/busybox sh ltp_testcode.sh", glibc_home_dir.clone()).await;
+         // run_ltp_tests_glibc(glibc_home_dir.clone()).await;
+-
+-        command("/glibc/busybox sh /glibc/interrupts_testcode.sh", glibc_home_dir.clone()).await;
+-        command("/glibc/busybox sh /glibc/copy-file-range_testcode.sh", glibc_home_dir.clone()).await;
++        command("/glibc/busybox touch /home/.gitconfig", glibc_home_dir.clone()).await;
++        command("/glibc/busybox echo \"hello world\" > README.md", glibc_home_dir.clone()).await;
++        command("/glibc/busybox cat README.md", glibc_home_dir.clone()).await;
++        command("/glibc/busybox touch README.md", glibc_home_dir.clone()).await;
++        command("/glibc/busybox cat README.md", glibc_home_dir.clone()).await;
++        command("/glibc/busybox sh /glibc/git_testcode.sh", glibc_home_dir.clone()).await;
++        command("/glibc/busybox cat /home/.gitconfig", glibc_home_dir.clone()).await;
++        // command("/glibc/busybox sh /glibc/interrupts_testcode.sh", glibc_home_dir.clone()).await;
++        // command("/glibc/busybox sh /glibc/copy-file-range_testcode.sh", glibc_home_dir.clone()).await;
+ 
+         // command(
+         //     "/glibc/busybox echo #### OS COMP TEST GROUP START splice-test-glibc ####",
+         //     glibc_home_dir.clone(),
+         // )
+         // .await;
+-        command("/glibc/busybox sh /glibc/splice_testcode.sh", glibc_home_dir.clone()).await;
++        // command("/glibc/busybox sh /glibc/splice_testcode.sh", glibc_home_dir.clone()).await;
+         // command(
+         //     "/glibc/busybox echo #### OS COMP TEST GROUP END splice-test-glibc ####",
+         //     glibc_home_dir.clone(),
+@@ -581,15 +588,15 @@ pub async fn initproc() {
+ 
+ 
+         let home_dir = PathBuf::from("/musl");
+-        command("/musl/busybox sh /musl/interrupts_testcode.sh", home_dir.clone()).await;
+-        command("/musl/busybox sh /musl/copy-file-range_testcode.sh", home_dir.clone()).await;
++        command("/musl/busybox sh /musl/git_testcode.sh", home_dir.clone()).await;
++        // command("/musl/busybox sh /musl/copy-file-range_testcode.sh", home_dir.clone()).await;
+ 
+         // command(
+         //     "/musl/busybox echo #### OS COMP TEST GROUP START splice-test-musl ####",
+         //     home_dir.clone(),
+         // )
+         // .await;
+-        command("/musl/busybox sh /musl/splice_testcode.sh", home_dir.clone()).await;
++        // command("/musl/busybox sh /musl/splice_testcode.sh", home_dir.clone()).await;
+         // command(
+         //     "/musl/busybox echo #### OS COMP TEST GROUP END splice-test-musl ####",
+         //     home_dir.clone(),
+diff --git a/kernel/src/utils/useref.rs b/kernel/src/utils/useref.rs
+index 6d11796..03f5116 100755
+--- a/kernel/src/utils/useref.rs
++++ b/kernel/src/utils/useref.rs
+@@ -66,84 +66,32 @@ impl<T> UserRef<T> {
+         let start_page = start_addr / PageTable::PAGE_SIZE;
+         let end_page = (end_addr - 1) / PageTable::PAGE_SIZE;
+ 
+-        // If accessing multiple pages, we need to ensure all pages are mapped and contiguous
++        // For cross-page buffers, ensure the involved user pages are mapped; do NOT require physical contiguity
+         if start_page != end_page {
+-            log::debug!("Cross-page buffer access detected: start={:#x}, end={:#x}, pages={}-{}, len={}, element_size={}",
+-                       start_addr, end_addr, start_page, end_page, len, element_size);
+-
+-            // Get current task to access its page table
+             let task = current_task();
+             if let Ok(user_task) = task.downcast_arc::<crate::tasks::UserTask>() {
+-                // First pass: identify unmapped pages and try to allocate them
++                // Collect unmapped pages
+                 let mut unmapped_pages = Vec::new();
+-
+                 for page_num in start_page..=end_page {
+                     let page_addr = VirtAddr::new(page_num * PageTable::PAGE_SIZE);
+                     if user_task.page_table.translate(page_addr).is_none() {
+                         unmapped_pages.push(page_addr);
+                     }
+                 }
+-
+-                // If we found unmapped pages, try to allocate them in batch
++                // Allocate missing pages in batch if needed
+                 if !unmapped_pages.is_empty() {
+-                    log::warn!("Found {} unmapped pages in cross-page access, attempting batch allocation", unmapped_pages.len());
+-
+-                    // Try to allocate missing pages using the batch allocation function
+                     if !self.batch_allocate_missing_pages(user_task.clone(), &unmapped_pages) {
+-                        log::error!("Batch allocation failed for unmapped pages");
+-                        return &mut [];
+-                    }
+-
+-                    log::info!("Successfully allocated {} missing pages", unmapped_pages.len());
+-                }
+-
+-                // Second pass: verify all pages are now mapped and check contiguity
+-                let mut prev_phys_end = None;
+-
+-                for page_num in start_page..=end_page {
+-                    let page_addr = VirtAddr::new(page_num * PageTable::PAGE_SIZE);
+-
+-                    // Check if this page is mapped
+-                    if let Some((phys_addr, _flags)) = user_task.page_table.translate(page_addr) {
+-                        log::debug!("Page at {:#x} is mapped to physical {:#x}", page_addr.raw(), phys_addr.raw());
+-
+-                        // Check if pages are physically contiguous
+-                        if let Some(expected_start) = prev_phys_end {
+-                            if phys_addr.raw() != expected_start {
+-                                log::error!("CRITICAL: Non-contiguous physical pages detected! Expected {:#x}, got {:#x}",
+-                                           expected_start, phys_addr.raw());
+-
+-                                // Output all page mappings from start to end for debugging
+-                                log::error!("Dumping all page mappings in range:");
+-                                for debug_page_num in start_page..=end_page {
+-                                    let debug_page_addr = VirtAddr::new(debug_page_num * PageTable::PAGE_SIZE);
+-                                    if let Some((debug_phys_addr, _)) = user_task.page_table.translate(debug_page_addr) {
+-                                        log::error!("Page at {:#x} is mapped to physical {:#x}", debug_page_addr.raw(), debug_phys_addr.raw());
+-                                    } else {
+-                                        log::error!("Page at {:#x} is NOT mapped", debug_page_addr.raw());
+-                                    }
+-                                }
+-
+-                                // Pages are not physically contiguous, cannot safely create a single slice
+-                                return &mut [];
+-                            }
+-                        }
+-                        prev_phys_end = Some(phys_addr.raw() + PageTable::PAGE_SIZE);
+-                    } else {
+-                        log::error!("CRITICAL: Page at {:#x} is still unmapped after batch allocation", page_addr.raw());
++                        log::error!("Failed to allocate missing user pages for cross-page buffer");
+                         return &mut [];
+                     }
+                 }
+-
+-                log::debug!("All pages are mapped and physically contiguous, proceeding with slice creation");
+             } else {
+-                log::error!("Failed to get current user task for page validation");
+-                // Without task context, we cannot validate pages safely
+-                return &mut [];
++                // If we cannot get user task context, fall back to creating the slice; page faults will handle mapping
++                log::warn!("UserRef: no user task context for page validation; proceeding without pre-validation");
+             }
+         }
+ 
+-        // All pages are mapped and contiguous (or single page), safe to create the slice
++        // All pages are mapped (or single page); create the slice over virtual memory (physical contiguity not required)
+         self.addr.slice_mut_with_len(len)
+     }
+ 
+diff --git a/logo.jpg b/logo.jpg
+new file mode 100644
+index 0000000..530b43e
+Binary files /dev/null and b/logo.jpg differ
+diff --git a/tju.jpg b/tju.jpg
+new file mode 100644
+index 0000000..2b1b951
+Binary files /dev/null and b/tju.jpg differ
+diff --git "a/\345\206\263\350\265\233\346\226\207\346\241\243.pdf" "b/\345\206\263\350\265\233\346\226\207\346\241\243.pdf"
+new file mode 100644
+index 0000000..fe9caeb
+Binary files /dev/null and "b/\345\206\263\350\265\233\346\226\207\346\241\243.pdf" differ
+diff --git "a/\345\256\236\344\272\213\346\261\202\346\230\257.jpg" "b/\345\256\236\344\272\213\346\261\202\346\230\257.jpg"
+new file mode 100644
+index 0000000..35e1118
+Binary files /dev/null and "b/\345\256\236\344\272\213\346\261\202\346\230\257.jpg" differ

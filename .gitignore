@@ -20,3 +20,7 @@ loongarch64-linux-musl-cross
 gcc-13.2.0-loongarch64-linux-gnu.tgz
 qemu-9.2.1.tar.xz
 libslirp
+mount
+alpine-linux-riscv64-ext4fs.img
+sdcard-la-git.img
+sdcard-rv-git.img

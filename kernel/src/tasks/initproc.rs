@@ -230,12 +230,15 @@ async fn command_iperf(cmd: &str, work_dir: PathBuf) {
 pub async fn initproc() {
     #[cfg(not(target_arch = "loongarch64"))]
     {
-        set_libc_path("/musl/lib/libc.so".to_string());
-        set_dyn_path("/musl/lib/libc.so".to_string());
+        // 使用 /usr/lib 作为库路径，因为我们会将共享库复制到那里
+        set_libc_path("/usr/lib".to_string());
+        set_dyn_path("/lib/ld-musl-riscv64.so.1".to_string());
         //set_dyn_path("/glibc/lib/ld-linux-riscv64-lp64d.so.1".to_string());
 
         // 创建必要的链接以支持busybox测试
-        let home_dir = PathBuf::from("/musl/basic");
+        let home_dir = PathBuf::from("/bin");
+        command("/bin/busybox sh", home_dir.clone()).await;
+        command("/musl/busybox sh git_testcode.sh", home_dir.clone()).await;
         command("/musl/busybox mkdir -p /bin", home_dir.clone()).await;
 
         // 创建常用命令的链接，确保基本命令可用
@@ -755,6 +758,66 @@ pub async fn initproc() {
         //     glibc_home_dir.clone(),
         // )
         // .await;
+
+        // 确保动态链接器存在于 /lib 目录
+        command("/musl/busybox mkdir -p /lib", home_dir.clone()).await;
+        command(
+            "/musl/busybox cp /musl/lib/ld-musl-riscv64.so.1 /lib/",
+            home_dir.clone(),
+        )
+        .await;
+
+        // 确保必要的共享库存在于 /usr/lib 目录
+        command("/musl/busybox mkdir -p /usr/lib", home_dir.clone()).await;
+        // 复制常用的共享库
+        command(
+            "/musl/busybox cp /musl/lib/libc.so /usr/lib/",
+            home_dir.clone(),
+        )
+        .await;
+        command(
+            "/musl/busybox cp /musl/lib/libpcre2-8.so.0 /usr/lib/",
+            home_dir.clone(),
+        )
+        .await;
+        command(
+            "/musl/busybox cp /musl/lib/libz.so.1 /usr/lib/",
+            home_dir.clone(),
+        )
+        .await;
+
+        // 复制其他可能需要的库文件
+        command(
+            "/musl/busybox cp /musl/lib/libm.so /usr/lib/",
+            home_dir.clone(),
+        )
+        .await;
+        command(
+            "/musl/busybox cp /musl/lib/libcrypto.so.3 /usr/lib/",
+            home_dir.clone(),
+        )
+        .await;
+        command(
+            "/musl/busybox cp /musl/lib/libssl.so.3 /usr/lib/",
+            home_dir.clone(),
+        )
+        .await;
+
+        // 创建必要的符号链接
+        command(
+            "/musl/busybox ln -sf /usr/lib/libc.so /usr/lib/libc.so.6",
+            home_dir.clone(),
+        )
+        .await;
+        command(
+            "/musl/busybox ln -sf /usr/lib/libm.so /usr/lib/libm.so.6",
+            home_dir.clone(),
+        )
+        .await;
+
+        // 设置库文件的正确权限
+        command("/musl/busybox chmod 755 /usr/lib/*.so*", home_dir.clone()).await;
+        command("/musl/busybox chmod 755 /lib/*.so*", home_dir.clone()).await;
     }
 
     #[cfg(target_arch = "loongarch64")]
@@ -766,7 +829,7 @@ pub async fn initproc() {
         // 创建必要的链接以支持busybox测试
         let home_dir = PathBuf::from("/musl/basic");
         command("/musl/busybox mkdir -p /bin", home_dir.clone()).await;
-
+        command("/musl/busybox sh", home_dir.clone()).await;
         // 创建常用命令的链接，确保基本命令可用
         command("/musl/busybox cp /musl/busybox /sleep", home_dir.clone()).await;
         command(
@@ -1040,7 +1103,7 @@ pub async fn initproc() {
         //command("/musl/busybox sh run-static-all.sh", home_dir.clone()).await;
         // command("/musl/busybox sh run-dynamic.sh", home_dir.clone()).await;
         // command("/musl/busybox sh run-static.sh", home_dir.clone()).await;
-        //command("/musl/busybox sh cyclictest_testcode.sh", home_dir.clone()).await;
+        // command("/musl/busybox sh cyclictest_testcode.sh", home_dir.clone()).await;
 
         // command("/musl/busybox sh unixbench_testcode.sh", home_dir.clone()).await;
         //command("/musl/busybox sh lmbench_testcode.sh", home_dir.clone()).await;
